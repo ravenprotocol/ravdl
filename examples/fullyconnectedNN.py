@@ -1,0 +1,63 @@
+
+from sklearn import datasets
+import numpy as np
+from neural_networks import NeuralNetwork
+from neural_networks.layers import Dense,Activation
+from neural_networks.optimizers import Adam
+
+from neural_networks.utils import SquareLoss
+
+
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
+
+
+data = datasets.load_digits()
+X = data.data
+y = data.target
+
+X, X_test, y , y_test = train_test_split(X, y, test_size=0.33)
+
+
+def to_categorical(x, n_col=None):
+    """ One-hot encoding of nominal values """
+    if not n_col:
+        n_col = np.amax(x) + 1
+    one_hot = np.zeros((x.shape[0], n_col))
+    one_hot[np.arange(x.shape[0]), x] = 1
+    return one_hot
+
+y = to_categorical(y.astype("int"))
+n_samples, n_features = X.shape
+n_hidden = 512
+
+
+optimizer = Adam()
+clf = NeuralNetwork(optimizer=optimizer,
+                        loss=SquareLoss)
+
+clf.add(Dense(n_hidden, input_shape=(n_features,)))
+clf.add(Activation('leaky_relu'))
+clf.add(Dense(n_hidden))
+clf.add(Activation('leaky_relu'))
+clf.add(Dense(n_hidden))
+clf.add(Activation('leaky_relu'))
+clf.add(Dense(10))
+clf.add(Activation('softmax'))
+
+train_err, val_err = clf.fit(X, y, n_epochs=50, batch_size=256)
+
+
+n = len(train_err)
+training, = plt.plot(range(n), train_err, label="Training Error")
+plt.legend(handles=[training])
+plt.show()
+
+
+y_pred = np.argmax(clf.predict(X_test),axis=1)
+
+
+accuracy = accuracy_score(y_test, y_pred)
+
+print ("Accuracy:", accuracy)
