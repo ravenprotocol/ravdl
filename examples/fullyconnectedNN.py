@@ -4,9 +4,7 @@ import numpy as np
 from neural_networks import NeuralNetwork
 from neural_networks.layers import Dense,Activation
 from neural_networks.optimizers import Adam
-
 from neural_networks.utils import SquareLoss
-
 
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
@@ -21,7 +19,6 @@ X, X_test, y , y_test = train_test_split(X, y, test_size=0.33)
 
 
 def to_categorical(x, n_col=None):
-    """ One-hot encoding of nominal values """
     if not n_col:
         n_col = np.amax(x) + 1
     one_hot = np.zeros((x.shape[0], n_col))
@@ -30,7 +27,7 @@ def to_categorical(x, n_col=None):
 
 y = to_categorical(y.astype("int"))
 n_samples, n_features = X.shape
-n_hidden = 512
+n_hidden = 32
 
 
 optimizer = Adam()
@@ -46,7 +43,7 @@ clf.add(Activation('leaky_relu'))
 clf.add(Dense(10))
 clf.add(Activation('softmax'))
 
-train_err, val_err = clf.fit(X, y, n_epochs=50, batch_size=256)
+train_err, val_err = clf.fit(X, y, n_epochs=50, batch_size=32)
 
 
 n = len(train_err)

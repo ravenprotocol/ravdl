@@ -1,17 +1,6 @@
 import ravop.core as R
 import numpy as np
 
-def batch_iterator(X, y=None, batch_size=64):
-    while X.status != "computed":
-        pass
-    n_samples = len(X.output)
-    for i in range(0, n_samples, batch_size):
-        begin, end = i, min(i + batch_size, n_samples)
-        if y is not None:
-            return [X.slice(begin=begin, size=end-begin), y.slice(begin=begin, size=end-begin)]
-        else:
-            yield X.slice(begin=begin, size=end-begin)
-
 
 class NeuralNetwork():
 
@@ -36,10 +25,11 @@ class NeuralNetwork():
 
     def train_on_batch(self, X, y):
         y_pred = self._forward_pass(X)
+
         loss = R.mean(self.loss_function.loss(y, y_pred))
         acc = self.loss_function.acc(y, y_pred)
-        # Calculate the gradient of the loss function wrt y_pred
         loss_grad = self.loss_function.gradient(y, y_pred)
+
         # Backpropagate. Update weights
         self._backward_pass(loss_grad=loss_grad)
 
@@ -52,11 +42,23 @@ class NeuralNetwork():
             pass
         n_samples = len(X.output)
         for _ in range(n_epochs):
+            print("no. of epoch :",_)
             batch_error = []
             for batch in range(0, n_samples, batch_size):
                 begin, end = batch, min(batch + batch_size, n_samples)
-                [batch_x,batch_y]=X.slice(begin=begin, size=end - begin), y.slice(begin=begin, size=end - begin)
+                batch_y=y.slice(begin=begin, size=end - begin)
+                batch_x= X.slice(begin=begin, size=end - begin)
+                while batch_x.status != "computed":
+                    pass
+                while batch_y.status != "computed":
+                    pass
+
                 loss, _ = self.train_on_batch(batch_x, batch_y)
+                while loss.status != "computed":
+                    pass
+                print("loss:>>>",loss)
+                #import sys
+                #sys.exit()
                 batch_error.append(loss)
 
             self.errors["training"].append(np.mean(batch_error))
