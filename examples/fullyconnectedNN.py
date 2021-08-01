@@ -11,7 +11,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 
 
-data = datasets.load_digits()
+data = datasets.load_iris()
 X = data.data
 y = data.target
 
@@ -27,7 +27,7 @@ def to_categorical(x, n_col=None):
 
 y = to_categorical(y.astype("int"))
 n_samples, n_features = X.shape
-n_hidden = 32
+n_hidden = 15
 
 
 optimizer = Adam()
@@ -37,19 +37,18 @@ clf = NeuralNetwork(optimizer=optimizer,
 clf.add(Dense(n_hidden, input_shape=(n_features,)))
 clf.add(Activation('leaky_relu'))
 clf.add(Dense(n_hidden))
-clf.add(Activation('leaky_relu'))
-clf.add(Dense(n_hidden))
-clf.add(Activation('leaky_relu'))
-clf.add(Dense(10))
+clf.add(Dense(3))
 clf.add(Activation('softmax'))
 
-train_err, val_err = clf.fit(X, y, n_epochs=50, batch_size=32)
+train_err = clf.fit(X, y, n_epochs=2, batch_size=32)
 
 
-n = len(train_err)
-training, = plt.plot(range(n), train_err, label="Training Error")
-plt.legend(handles=[training])
-plt.show()
+print(train_err)
+
+#n = len(train_err)
+#training, = plt.plot(range(n), train_err, label="Training Error")
+#plt.legend(handles=[training])
+#plt.show()
 
 
 y_pred = np.argmax(clf.predict(X_test),axis=1)

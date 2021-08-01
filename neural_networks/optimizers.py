@@ -22,9 +22,7 @@ class Adam():
 
         temp=R.mul( R.sub(R.Scalar(1) , self.b1) ,  grad_wrt_w)
         self.m = R.multiply(self.b1 , R.add(self.m , temp ))
-        print("debug1")
         temp1=R.mul( R.sub(R.Scalar(1) , self.b2) , R.pow(grad_wrt_w, R.Scalar(2)))
-        print("debug2")
         self.v = R.add( R.mul(self.b2 , self.v ) , temp1)
         m_hat = R.div(self.m , R.sub(R.Scalar(1) , self.b1))
         v_hat = R.div(self.v , R.sub(R.Scalar(1) , self.b2))

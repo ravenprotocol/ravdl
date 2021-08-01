@@ -81,16 +81,13 @@ class Dense(Layer):
     def backward_pass(self, accum_grad):
         W = self.W
         if self.trainable:
-            grad_w = R.transpose(self.layer_input).dot(accum_grad)
-            grad_w0 = R.sum(accum_grad ,axis=0)
-
             grad_w=R.transpose(self.layer_input).dot(accum_grad)
             grad_w0 = R.sum(accum_grad)
 
             # Update the layer weights
             self.W = self.W_opt.update(self.W, grad_w)
             self.w0 = self.w0_opt.update(self.w0, grad_w0)
-        print("_______________________________________________________backpass")
+        #print("_______________________________________________________backpass")
         # Return accumulated gradient for next layer
         # Calculated based on the weights used during the forward pass
         accum_grad = accum_grad.dot(R.transpose(W))
@@ -124,6 +121,9 @@ class Activation(Layer):
 
     def output_shape(self):
         return self.input_shape
+
+
+
 
 
 

@@ -52,17 +52,15 @@ class NeuralNetwork():
                     pass
                 while batch_y.status != "computed":
                     pass
-
+                print(np.shape(batch_x.output),np.shape(batch_y.output))
                 loss, _ = self.train_on_batch(batch_x, batch_y)
-                while loss.status != "computed":
-                    pass
-                print("loss:>>>",loss)
                 #import sys
                 #sys.exit()
                 batch_error.append(loss)
 
-            self.errors["training"].append(np.mean(batch_error))
-
+            self.errors["training"].append(R.mean(R.Tensor(batch_error)))
+        while loss.status != "computed":
+            pass
         return self.errors["training"]
 
     def _forward_pass(self, X, training=True):
@@ -77,4 +75,9 @@ class NeuralNetwork():
             loss_grad = layer.backward_pass(loss_grad)
 
     def predict(self, X):
-        return self._forward_pass(X, training=False)
+        X=R.Tensor(X)
+        pred= self._forward_pass(X, training=False)
+        while pred.status!="computed":
+            pass
+        print(pred)
+        return pred.output
