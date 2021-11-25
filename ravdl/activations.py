@@ -1,3 +1,5 @@
+import ravop.core as R
+
 class Activation:
     
     def __init__(self):
@@ -26,15 +28,15 @@ class Activation:
         den = self.one + R.abs(X)
         return R.div(X, den)
     
-    def LeakyRelu(self, alpha =  0.2, X):
+    def LeakyRelu(self,X, alpha =  0.2):
         alpha = R.Scalar(alpha)
         return X.where(X.multiply(alpha), condition = X > self.zero)
     
-    def elu(self, alpha = 0.2, X):
+    def elu(self,X, alpha = 0.2):
         alpha = R.Scalar(alpha)
         return X.where((R.exp(X).sub(self.one)).multiply(alpha), condition=x > self.zero)
     
-    def selu(self, alpha = 1.67326324, scale = 1.05070098 , X):
+    def selu(self,X, alpha = 1.67326324, scale = 1.05070098 ):
         alpha = R.Scalar(alpha)
         scale = R.Scalar(scale)
         return ((X.multiply(scale)).where((R.exp(X).sub(self.one)).multiply(scale).multiply(alpha), condition = X > self.zero))
