@@ -28,7 +28,7 @@ def to_categorical(x, n_col=None):
 y = to_categorical(y.astype("int"))
 n_samples, n_features = X.shape
 n_hidden = 15
-
+print("no of samples:",n_samples)
 
 optimizer = Adam()
 clf = NeuralNetwork(optimizer=optimizer,
@@ -40,10 +40,10 @@ clf.add(Dense(n_hidden))
 clf.add(Dense(3))
 clf.add(Activation('softmax'))
 
-train_err = clf.fit(X, y, n_epochs=2, batch_size=32)
+train_err = clf.fit(X, y, n_epochs=5, batch_size=32)
 
 
-print(train_err)
+# print(train_err)
 
 #n = len(train_err)
 #training, = plt.plot(range(n), train_err, label="Training Error")

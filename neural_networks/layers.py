@@ -2,9 +2,10 @@ from __future__ import print_function, division
 import math
 import numpy as np
 import copy
+import time
 from .utils import Activation,LeakyReLU,Softmax
 
-import ravop.core as R
+import ravop.core.c as R
 
 import sys
 act=Activation()
@@ -53,9 +54,9 @@ class Dense(Layer):
     def initialize(self, optimizer):
         #print(optimizer)
         limit = R.div(R.Scalar(1) , R.square_root(R.Scalar(self.input_shape[0])) )
-        while limit.status!="computed":
-            pass
-        self.W = R.Tensor(np.random.uniform(-limit.output, limit.output, (self.input_shape[0], self.n_units)))
+        limit.wait_till_computed()
+
+        self.W = R.Tensor(np.random.uniform(-limit(), limit(), (self.input_shape[0], self.n_units)))
         self.w0 = R.Tensor(np.zeros((1, self.n_units)) )
         self.W_opt = copy.copy(optimizer)
         self.w0_opt = copy.copy(optimizer)
@@ -67,15 +68,11 @@ class Dense(Layer):
 
     def forward_pass(self, X, training=True):
         self.layer_input = X
-        temp=self.w0.gather(R.Scalar(0))
-        while temp.status!="computed":
-            pass
-
 
         #print(self.W, self.w0,np.shape(X.output), np.shape(self.W.output), np.shape(self.w0.output),np.shape(temp.output))
         z= X.dot(self.W)
         #z=z.foreach(operation="add",params=self.w0)
-        z=z.add(self.w0.gather(R.Scalar(0)))
+        z= z.add(self.w0)
         return z
 
     def backward_pass(self, accum_grad):
@@ -114,8 +111,7 @@ class Activation(Layer):
     def backward_pass(self, accum_grad):
         #print("qqqqwwwww")
         z=accum_grad * self.activation_func(self.layer_input)
-        while z.status!="computed":
-            pass
+        z.wait_till_computed()
         #print(self.activation_name)
         return z
 

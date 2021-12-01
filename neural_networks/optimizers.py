@@ -1,6 +1,6 @@
-import ravop.core as R
+import ravop.core.c as R
 import numpy as np
-import sys
+import sys,time
 
 class Adam():
     def __init__(self, learning_rate=0.001, b1=0.9, b2=0.999):
@@ -15,10 +15,9 @@ class Adam():
     def update(self, w, grad_wrt_w):
         # If not initialized
         if self.m is None:
-            while grad_wrt_w.status!="computed":
-                pass
-            self.m = R.Tensor(np.zeros(np.shape(grad_wrt_w)))
-            self.v = R.Tensor(np.zeros(np.shape(grad_wrt_w)))
+            grad_wrt_w.wait_till_computed()
+            self.m = R.Tensor(np.zeros(np.shape(grad_wrt_w())))
+            self.v = R.Tensor(np.zeros(np.shape(grad_wrt_w())))
 
         temp=R.mul( R.sub(R.Scalar(1) , self.b1) ,  grad_wrt_w)
         self.m = R.multiply(self.b1 , R.add(self.m , temp ))
@@ -30,3 +29,7 @@ class Adam():
         self.w_updt = R.add(R.mul(R.Scalar(self.learning_rate) , m_hat) , temp2)
 
         return R.div(w , self.w_updt)
+
+
+class RMS_prop():
+    def __init__(self,lr=0.01,rho=0.9):
