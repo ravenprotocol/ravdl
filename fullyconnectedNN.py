@@ -3,7 +3,7 @@ from sklearn import datasets
 import numpy as np
 from neural_networks import NeuralNetwork
 from neural_networks.layers import Dense,Activation
-from neural_networks.optimizers import Adam
+from neural_networks.optimizers import RMS_prop
 from neural_networks.utils import SquareLoss
 
 import matplotlib.pyplot as plt
@@ -12,8 +12,8 @@ from sklearn.metrics import accuracy_score
 
 
 data = datasets.load_iris()
-X = data.data
-y = data.target
+X = data.data[0:90]
+y = data.target[0:90]
 
 X, X_test, y , y_test = train_test_split(X, y, test_size=0.33)
 
@@ -30,7 +30,7 @@ n_samples, n_features = X.shape
 n_hidden = 15
 print("no of samples:",n_samples)
 
-optimizer = Adam()
+optimizer = RMS_prop()
 clf = NeuralNetwork(optimizer=optimizer,
                         loss=SquareLoss)
 
