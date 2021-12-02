@@ -25,13 +25,11 @@ class NeuralNetwork():
 
     def train_on_batch(self, X, y):
         y_pred = self._forward_pass(X)
-        y_pred.wait_till_computed()
-        print("ypred:",y(),y_pred())
+        #print("ypred:",y(),y_pred())
 
 
         loss = R.mean(self.loss_function.loss(y, y_pred))
         loss.wait_till_computed()
-        print("loss")
         acc = self.loss_function.acc(y, y_pred)
         loss_grad = self.loss_function.gradient(y, y_pred)
 
@@ -55,13 +53,9 @@ class NeuralNetwork():
                 batch_x= X.slice(begin=begin, size=end - begin)
                 batch_x.wait_till_computed()
                 batch_y.wait_till_computed()
-                print(np.shape(batch_x()),np.shape(batch_y()))
-                print("before computing loss")
                 loss, _ = self.train_on_batch(batch_x, batch_y)
-                #loss.wait_till_computed()
-                print("after computing loss")
                 batch_error.append(float(loss))
-                print(batch_error)
+            print(batch_error)
             self.errors["training"].append(R.mean(R.Tensor(batch_error)))
         return self.errors["training"]
 

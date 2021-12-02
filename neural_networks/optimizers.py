@@ -28,7 +28,7 @@ class Adam():
         temp2=R.add(R.square_root(v_hat) , self.eps)
         self.w_updt = R.add(R.mul(R.Scalar(self.learning_rate) , m_hat) , temp2)
 
-        return R.div(w , self.w_updt)
+        return R.sub(w , self.w_updt)
 
 
 class RMS_prop():
@@ -41,12 +41,14 @@ class RMS_prop():
     def update(self, w, grad_wrt_w):
         # If not initialized
         grad_wrt_w.wait_till_computed()
-        print("update rms prop")
+        shape_grad=grad_wrt_w.shape()
+        shape_grad.wait_till_computed()
+        #print("update rms prop")
         if self.Eg is None:
-            self.Eg = np.zeros(grad_wrt_w.shape())
+            self.Eg = R.Tensor(np.zeros(shape_grad()))
 
         #self.Eg = self.rho * self.Eg + (1 - self.rho) * np.power(grad_wrt_w, 2)
-        self.Eg=R.mul(self.rho,self.Eg).add(R.sub(R.Scalar(1),self.rho)).multiply(R.square(grad_wrt_w))
+        self.Eg=R.mul(self.rho,self.Eg).add(R.sub(R.Scalar(1),self.rho)).mul(R.square(grad_wrt_w))
         # Divide the learning rate for a weight by a running average of the magnitudes of recent
         # gradients for that weight
         #return w - self.learning_rate * grad_wrt_w / np.sqrt(self.Eg + self.eps)

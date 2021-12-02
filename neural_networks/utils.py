@@ -32,7 +32,7 @@ class SquareLoss(Loss):
 
 class Softmax():
     def __call__(self, x):
-        print("softmax")
+        #print("softmax")
         e_x = R.exp(R.sub(x, R.max(x, axis=-1)))
         return R.div(e_x, R.sum(e_x, axis=-1))
 
@@ -55,10 +55,10 @@ class LeakyReLU():
 class Activation():
     def LeakyReLU(self, X, alpha=0.2):
         alpha = R.Scalar(alpha)
-        print("leakyrelu")
+        #print("leakyrelu")
         return X.where(X.multiply(alpha), condition=X > R.Scalar(0))
 
     def Softmax(self,x):
-        print("softmax")
+        #print("softmax")
         e_x = R.exp(R.sub(x, R.max(x)))
         return R.div(e_x, R.sum(e_x))

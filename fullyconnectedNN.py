@@ -37,10 +37,10 @@ clf = NeuralNetwork(optimizer=optimizer,
 clf.add(Dense(n_hidden, input_shape=(n_features,)))
 clf.add(Activation('leaky_relu'))
 clf.add(Dense(n_hidden))
-clf.add(Dense(3))
+clf.add(Dense(2))
 clf.add(Activation('softmax'))
 
-train_err = clf.fit(X, y, n_epochs=5, batch_size=32)
+train_err = clf.fit(X, y, n_epochs=50, batch_size=32)
 
 
 # print(train_err)
