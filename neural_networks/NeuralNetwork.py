@@ -32,11 +32,11 @@ class NeuralNetwork():
         loss.wait_till_computed()
         acc = self.loss_function.acc(y, y_pred)
         loss_grad = self.loss_function.gradient(y, y_pred)
-
+        loss_grad.wait_till_computed()
+        #print(loss_grad())
         # Backpropagate. Update weights
         self._backward_pass(loss_grad=loss_grad)
         loss.wait_till_computed()
-
         return loss(), acc
 
     def fit(self, X, y, n_epochs, batch_size):
@@ -55,7 +55,7 @@ class NeuralNetwork():
                 batch_y.wait_till_computed()
                 loss, _ = self.train_on_batch(batch_x, batch_y)
                 batch_error.append(float(loss))
-            print(batch_error)
+            print(batch_error,_)
             self.errors["training"].append(R.mean(R.Tensor(batch_error)))
         return self.errors["training"]
 

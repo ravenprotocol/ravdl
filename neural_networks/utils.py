@@ -9,13 +9,10 @@ class Loss(object):
     def gradient(self, y, y_pred):
         raise NotImplementedError()
 
-    def acc(self, y, y_pred):
-        return 0
-
 
 def accuracy_score(y_true, y_pred):
     """ Compare y_true to y_pred and return the accuracy """
-    accuracy = np.sum(y_true == y_pred, axis=0) / len(y_true)
+    accuracy = np.sum(y_true == np.round(y_pred), axis=0) / len(y_true)
     return accuracy
 
 
@@ -28,6 +25,10 @@ class SquareLoss(Loss):
 
     def gradient(self, y, y_pred):
         return R.neg(R.sub(y, y_pred))
+
+    def acc(self, y, y_pred):
+        y_pred.wait_till_computed()
+        return accuracy_score(y(), y_pred())
 
 
 class Softmax():

@@ -40,7 +40,7 @@ clf.add(Dense(n_hidden))
 clf.add(Dense(2))
 clf.add(Activation('softmax'))
 
-train_err = clf.fit(X, y, n_epochs=50, batch_size=32)
+train_err = clf.fit(X, y, n_epochs=5, batch_size=16)
 
 
 # print(train_err)
@@ -57,3 +57,5 @@ y_pred = np.argmax(clf.predict(X_test),axis=1)
 accuracy = accuracy_score(y_test, y_pred)
 
 print ("Accuracy:", accuracy)
+
+print(y,y_pred)
