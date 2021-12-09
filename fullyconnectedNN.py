@@ -2,8 +2,8 @@
 from sklearn import datasets
 import numpy as np
 from neural_networks import NeuralNetwork
-from neural_networks.layers import Dense,Activation
-from neural_networks.optimizers import Adam
+from neural_networks.layers import Dense,Activation,Dropout,BatchNormalization
+from neural_networks.optimizers import Adam,RMS_prop
 from neural_networks.utils import SquareLoss
 from sklearn.preprocessing import normalize #machine learning algorithm library
 
@@ -32,21 +32,21 @@ n_samples, n_features = X.shape
 n_hidden = 15
 print("no of samples:",n_samples)
 
-optimizer = Adam()
+optimizer = RMS_prop()
 clf = NeuralNetwork(optimizer=optimizer,
                         loss=SquareLoss)
 
-clf.add(Dense(n_hidden, input_shape=(n_features,)))
-clf.add(Activation('leaky_relu'))
-clf.add(Dense(15))
+clf.add(Dense(n_hidden, input_shape=(n_features,) ))
+clf.add(BatchNormalization())
+clf.add(Dense(30))
+clf.add(Dropout(0.9,noise_shape=None))
 clf.add(Dense(3))
 clf.add(Activation('softmax'))
 
-train_err = clf.fit(X, y, n_epochs=50, batch_size=16)
+train_err = clf.fit(X, y, n_epochs=5, batch_size=25)
 
 
 # print(train_err)
-
 #n = len(train_err)
 #training, = plt.plot(range(n), train_err, label="Training Error")
 #plt.legend(handles=[training])
@@ -60,4 +60,4 @@ accuracy = accuracy_score(y_test, y_pred)
 
 print ("Accuracy:", accuracy)
 
-print(y,y_pred)
+#print(y,y_pred)
