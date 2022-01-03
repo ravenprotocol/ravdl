@@ -1,4 +1,4 @@
-import ravop.core as R
+import ravop.core.c as R
 
 class Activation:
     
