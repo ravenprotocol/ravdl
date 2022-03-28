@@ -17,8 +17,16 @@ class Softmax():
         return self.__call__(x) * (R.t(1) - self.__call__(x))
 
 class TanH():
-    def call(self, x):
+    def __call__(self, x):
         return R.div(R.t(2), R.t(1) + R.exp(R.neg(R.t(2)) * x)) - R.t(1)
 
     def gradient(self, x):
-        return R.t(1) - R.pow(self.call(x), R.t(2))
+        return R.t(1) - R.pow(self.__call__(x), R.t(2))
+
+class ReLU():
+    def __call__(self, x):
+        x_value = x()
+        return R.t(np.where(x_value >= 0, x_value, 0))
+
+    def gradient(self, x):
+        return R.t(np.where(x() >= 0, 1, 0))
