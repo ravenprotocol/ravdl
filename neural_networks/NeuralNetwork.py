@@ -5,6 +5,7 @@ import numpy as np
 from ..utils import batch_iterator
 from ..utils.misc import bar_widgets
 import ravop as R
+import json
 
 
 class NeuralNetwork():
@@ -20,11 +21,21 @@ class NeuralNetwork():
     validation: tuple
         A tuple containing validation data and labels (X, y)
     """
-    def __init__(self, optimizer, loss, validation_data=None):
+    def __init__(self, optimizer, loss, validation_data=None,save_weight=None,load_weights=None):
         self.optimizer = optimizer
         self.layers = []
         self.errors = {"training": [], "validation": []}
         self.loss_function = loss()
+        self.save_weight=save_weight
+        self.load_weights=load_weights
+        self.loaded_weights=None
+        if self.load_weights is not None:
+            with open(self.load_weights, "rb") as f:
+                weights = json.load(f)
+            self.loaded_weights=weights
+        self.layer_type=[]
+        # print(weights)
+        # print(self.save_weight)
         # self.progressbar = progressbar.ProgressBar(widgets=bar_widgets)
 
         self.val_set = None
@@ -45,8 +56,15 @@ class NeuralNetwork():
             layer.set_input_shape(shape=self.layers[-1].output_shape())
 
         # If the layer has weights that needs to be initialized 
-        if hasattr(layer, 'initialize'):
-            layer.initialize(optimizer=self.optimizer)
+        if hasattr(layer, 'initialize') :
+            layer.initialize(optimizer=self.optimizer)   
+
+        layer_name=layer.__class__.__name__
+        self.layer_type.append(layer_name)
+        if layer_name in self.layer_type:
+            layer_name+=str(self.layer_type.count(layer.__class__.__name__)) 
+        layer.layer_name=layer_name
+
 
         # Add layer to the network
         self.layers.append(layer)
@@ -73,25 +91,50 @@ class NeuralNetwork():
 
         return loss, acc
 
-    def fit(self, X, y, n_epochs, batch_size):
+    def fit(self, X, y, n_epochs, batch_size,training=True): 
         """ Trains the model for a fixed number of epochs """
         X = R.t(X)
         y = R.t(y)
         # for _ in self.progressbar(range(n_epochs)):
-        for epoch in range(1, n_epochs + 1):
-            print('\nEpoch: ', epoch)
-            batch_error = []
-            for X_batch, y_batch in batch_iterator(X, y, batch_size=batch_size):
-                loss, _ = self.train_on_batch(X_batch, y_batch)
-                batch_error.append(loss())
-            print("   Batch Error: ", batch_error)
-            self.errors["training"].append(np.mean(batch_error))
+        if self.loaded_weights is not None:
+            self.load_weights()
 
-            if self.val_set is not None:
-                val_loss, _ = self.test_on_batch(self.val_set["X"], self.val_set["y"])
-                self.errors["validation"].append(val_loss())
+        if training is True:        
+            for epoch in range(1, n_epochs + 1):
+                print('\nEpoch: ', epoch)
+                batch_error = []
+                for X_batch, y_batch in batch_iterator(X, y, batch_size=batch_size):
+                    loss, _ = self.train_on_batch(X_batch, y_batch)
+                    batch_error.append(loss())
 
-        return self.errors["training"], self.errors["validation"]
+                print("   Batch Error: ", batch_error)
+                self.errors["training"].append(np.mean(batch_error))
+
+                if self.val_set is not None:
+                    val_loss, _ = self.test_on_batch(self.val_set["X"], self.val_set["y"])
+                    self.errors["validation"].append(val_loss())
+                if self.save_weight is True:
+                    self.save_model()
+            return self.errors["training"], self.errors["validation"]
+    
+    def load_weights(self):
+        for i in self.layers:
+            l_name=i.get_layer_name()
+            layer_w=self.loaded_weights[l_name]
+            if layer_w is not None:
+                i.W=R.t(layer_w[0])
+                i.w0=R.t(layer_w[1])
+        
+
+    def save_model(self):
+        layer_weights={}
+        layer_type=[]
+        for layer in self.layers:
+            weights=layer.get_weights()
+            layer_weights[layer.layer_name]=weights
+        with open("weights.json", "w") as outfile:
+            json.dump(layer_weights, outfile)
+            
 
     def _forward_pass(self, X, training=True):
         """ Calculate the output of the NN """
@@ -115,7 +158,7 @@ class NeuralNetwork():
         table_data = [["Layer Type", "Parameters", "Output Shape"]]
         tot_params = 0
         for layer in self.layers:
-            layer_name = layer.layer_name()
+            layer_name = layer.get_layer_name()
             params = layer.parameters()()
             out_shape = layer.output_shape()
             table_data.append([layer_name, str(params), str(out_shape)])

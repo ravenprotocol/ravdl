@@ -17,6 +17,9 @@ class Layer(object):
         """ The name of the layer. Used in model summary. """
         return self.__class__.__name__
 
+    def get_layer_name(self):
+        return self.layer_name
+
     def parameters(self):
         """ The number of trainable parameters used by the layer """
         return R.t(0)
@@ -36,6 +39,9 @@ class Layer(object):
         """ The shape of the output produced by forward_pass """
         raise NotImplementedError()
 
+    def get_weights(self):
+        return None
+
 class Dense(Layer):
     """A fully-connected NN layer.
     Parameters:
@@ -52,8 +58,10 @@ class Dense(Layer):
         self.input_shape = input_shape
         self.n_units = n_units
         self.trainable = True
+        self.layer_name=self.layer_name
         self.W = None
         self.w0 = None
+        
 
     def initialize(self, optimizer):
         # Initialize the weights
@@ -92,6 +100,13 @@ class Dense(Layer):
 
     def output_shape(self):
         return (self.n_units, )
+    
+    def get_weights(self):
+        return [self.W().tolist(),self.w0().tolist()]
+
+    def get_layer_name(self):
+        return self.layer_name
+
 
 class BatchNormalization(Layer):
     """Batch normalization.
@@ -165,6 +180,8 @@ class BatchNormalization(Layer):
     def output_shape(self):
         return self.input_shape
 
+    def get_weights(self):
+        return None
 
 class Dropout(Layer):
     """A layer that randomly sets a fraction p of the output units of the previous layer
@@ -196,12 +213,14 @@ class Dropout(Layer):
     def output_shape(self):
         return self.input_shape
 
+    def get_weights(self):
+        return None
+
 activation_functions = {
     'sigmoid': Sigmoid,
     'softmax': Softmax,
     'tanh': TanH,
-    'relu': ReLU
-}
+    'relu': ReLU}
 
 class Activation(Layer):
     """A layer that applies an activation operation to the input.
@@ -230,9 +249,7 @@ class Activation(Layer):
     def output_shape(self):
         return self.input_shape
 
-
 class Conv2D(Layer):
-
     def __init__(self, n_filters, filter_shape, input_shape=None, padding='same', stride=1):
         self.n_filters = n_filters
         self.filter_shape = filter_shape
@@ -300,7 +317,6 @@ class Conv2D(Layer):
                                 self.filter_shape,
                                 stride=self.stride,
                                 output_shape=self.padding)
-
         return accum_grad
 
     def output_shape(self):
@@ -309,6 +325,12 @@ class Conv2D(Layer):
         output_height = (height + np.sum(pad_h) - self.filter_shape[0]) / self.stride + 1
         output_width = (width + np.sum(pad_w) - self.filter_shape[1]) / self.stride + 1
         return self.n_filters, int(output_height), int(output_width)
+    
+    def get_weights(self):
+        return [self.W().tolist() ,self.w0().tolist()]
+
+    def get_layer_name(self):
+        return self.layer_name
 
 class Flatten(Layer):
     """ Turns a multidimensional matrix into two-dimensional """
@@ -375,7 +397,6 @@ class PoolingLayer(Layer):
         assert out_width % 1 == 0
         return channels, int(out_height), int(out_width)
 
-
 class MaxPooling2D(PoolingLayer):
     def _pool_forward(self, X_col):
         arg_max = np.argmax(X_col(), axis=0).flatten()
@@ -388,7 +409,6 @@ class MaxPooling2D(PoolingLayer):
         arg_max = self.cache
         accum_grad_col[arg_max, range(accum_grad().size)] = accum_grad()
         return R.t(accum_grad_col)
-
 
 def image_to_column(images, filter_shape, stride, output_shape='same'):
     filter_height, filter_width = filter_shape
@@ -428,7 +448,6 @@ def determine_padding(filter_shape, output_shape="same"):
         pad_w2 = int(math.ceil((filter_width - 1)/2))
 
         return (pad_h1, pad_h2), (pad_w1, pad_w2)
-
 
 # Reference: CS231n Stanford
 def get_im2col_indices(images_shape, filter_shape, padding, stride=1):
