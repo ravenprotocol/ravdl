@@ -4,6 +4,8 @@ import numpy as np
 # import progressbar
 from ..utils import batch_iterator
 from ..utils.misc import bar_widgets
+from .callbacks import Callback
+
 import ravop as R
 import json
 
@@ -34,6 +36,7 @@ class NeuralNetwork():
                 weights = json.load(f)
             self.loaded_weights=weights
         self.layer_type=[]
+        self.loss=None
         # print(weights)
         # print(self.save_weight)
         # self.progressbar = progressbar.ProgressBar(widgets=bar_widgets)
@@ -91,33 +94,52 @@ class NeuralNetwork():
 
         return loss, acc
 
-    def fit(self, X, y, n_epochs, batch_size,training=True): 
+    def fit(self, X, y, n_epochs, batch_size,training=True, callbacks=None): 
         """ Trains the model for a fixed number of epochs """
         X = R.t(X)
         y = R.t(y)
+        
         # for _ in self.progressbar(range(n_epochs)):
         if self.loaded_weights is not None:
-            self.load_weights()
+            self.load_weights_file()
+        self.callbacks=callbacks
+        cb=Callback(self.callbacks,model=self)
 
-        if training is True:        
+        if training is True:
+        #callback func on begining training
+            cb.on_train_begin()
             for epoch in range(1, n_epochs + 1):
+                #callback func on epoch training
+                cb.on_epoch_begin()
+
                 print('\nEpoch: ', epoch)
                 batch_error = []
                 for X_batch, y_batch in batch_iterator(X, y, batch_size=batch_size):
+                    cb.on_batch_begin() #callbacks on batch begin
                     loss, _ = self.train_on_batch(X_batch, y_batch)
                     batch_error.append(loss())
+                    self.loss=loss()
+                    cb.on_batch_end()#Callback on batch ending
 
-                print("   Batch Error: ", batch_error)
+                print("Batch Error: ", batch_error)
                 self.errors["training"].append(np.mean(batch_error))
+
 
                 if self.val_set is not None:
                     val_loss, _ = self.test_on_batch(self.val_set["X"], self.val_set["y"])
                     self.errors["validation"].append(val_loss())
+                
+                #callback func on epoch end
+                cb.on_epoch_end()
+
                 if self.save_weight is True:
                     self.save_model()
             return self.errors["training"], self.errors["validation"]
+            
+            #callback func on ending training
+            cb.on_train_end()
     
-    def load_weights(self):
+    def load_weights_file(self):
         for i in self.layers:
             l_name=i.get_layer_name()
             layer_w=self.loaded_weights[l_name]
@@ -126,15 +148,15 @@ class NeuralNetwork():
                 i.w0=R.t(layer_w[1])
         
 
-    def save_model(self):
+    def save_model(self,filename="weights.json"):
         layer_weights={}
         layer_type=[]
         for layer in self.layers:
             weights=layer.get_weights()
             layer_weights[layer.layer_name]=weights
-        with open("weights.json", "w") as outfile:
+        with open(filename, "w") as outfile:
             json.dump(layer_weights, outfile)
-            
+        pass
 
     def _forward_pass(self, X, training=True):
         """ Calculate the output of the NN """
@@ -171,3 +193,4 @@ class NeuralNetwork():
         """ Use the trained model to predict labels of X """
         X = R.t(X)
         return self._forward_pass(X, training=False)
+
