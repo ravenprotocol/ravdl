@@ -4,6 +4,7 @@ import numpy as np
 # import progressbar
 from ..utils import batch_iterator
 from ..utils.misc import bar_widgets
+from ..globals import globals as g
 import ravop as R
 
 
@@ -26,6 +27,10 @@ class NeuralNetwork():
         self.errors = {"training": [], "validation": []}
         self.loss_function = loss()
         # self.progressbar = progressbar.ProgressBar(widgets=bar_widgets)
+        g.zero = R.t(0)
+        g.half = R.t(0.5)
+        g.one = R.t(1)
+        g.two = R.t(2)
 
         self.val_set = None
         if validation_data:
