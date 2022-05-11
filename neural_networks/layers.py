@@ -2,7 +2,7 @@ from __future__ import print_function, division
 import math
 import numpy as np
 import copy
-
+from ..globals import globals as g
 from .activation_functions import Sigmoid, Softmax, TanH, ReLU
 import ravop as R
 
@@ -19,7 +19,7 @@ class Layer(object):
 
     def parameters(self):
         """ The number of trainable parameters used by the layer """
-        return R.t(0)
+        return g.zero
 
     def forward_pass(self, X, training):
         """ Propogates the signal forward in the network """
@@ -57,16 +57,15 @@ class Dense(Layer):
 
     def initialize(self, optimizer):
         # Initialize the weights
-        limit = R.div(R.t(1), R.square_root(R.t(int(self.input_shape[0]))))
-        limit_value = limit()
-        self.W = R.t(np.random.uniform(-limit_value, limit_value, (int(self.input_shape[0]), self.n_units)))
+        limit = R.div(g.one, R.square_root(R.t(int(self.input_shape[0]))))
+        self.W = R.random_uniform(R.neg(limit), limit, size=(int(self.input_shape[0]), self.n_units))
         self.w0 = R.t(np.zeros((1,self.n_units)))
         # Weight optimizers
         self.W_opt  = copy.copy(optimizer)
         self.w0_opt = copy.copy(optimizer)
 
     def parameters(self): 
-        return R.t(int(np.prod(self.W().shape))) + R.t(int(np.prod(self.w0().shape)))
+        return R.prod(R.shape(self.W)) + R.prod(R.shape(self.w0))
 
     def forward_pass(self, X, training=True):
         self.layer_input = X
@@ -79,7 +78,7 @@ class Dense(Layer):
         if self.trainable:
             # Calculate gradient w.r.t layer weights
             grad_w = R.transpose(self.layer_input).dot(accum_grad)
-            grad_w0 = R.t(np.sum(accum_grad(), axis=0, keepdims=True))
+            grad_w0 = R.sum(accum_grad, axis=0, keepdims="True")
 
             # Update the layer weights
             self.W = self.W_opt.update(self.W, grad_w)
@@ -112,7 +111,8 @@ class BatchNormalization(Layer):
         self.beta_opt = copy.copy(optimizer)
 
     def parameters(self):
-        return R.t(int(np.prod(self.gamma().shape))) + R.t(int(np.prod(self.beta().shape)))
+        return R.prod(R.shape(self.gamma)) + R.prod(R.shape(self.beta))
+        
 
     def forward_pass(self, X, training=True):
 
@@ -124,15 +124,15 @@ class BatchNormalization(Layer):
         if training and self.trainable:
             mean = R.mean(X, axis=0)
             var = R.variance(X, axis=0)
-            self.running_mean = self.momentum * self.running_mean + (R.t(1) - self.momentum) * mean
-            self.running_var = self.momentum * self.running_var + (R.t(1) - self.momentum) * var
+            self.running_mean = self.momentum * self.running_mean + (g.one - self.momentum) * mean
+            self.running_var = self.momentum * self.running_var + (g.one - self.momentum) * var
         else:
             mean = self.running_mean
             var = self.running_var
 
         # Statistics saved for backward pass
         self.X_centered = X - mean
-        self.stddev_inv = R.div(R.t(1), R.square_root(var + self.eps))
+        self.stddev_inv = R.div(g.one, R.square_root(var + self.eps))
 
         X_norm = self.X_centered * self.stddev_inv
         output = self.gamma * X_norm + self.beta
@@ -157,7 +157,7 @@ class BatchNormalization(Layer):
 
         # The gradient of the loss with respect to the layer inputs (use weights and statistics from forward pass)
         
-        accum_grad = R.div(R.t(1),batch_size) * gamma * self.stddev_inv * (batch_size * accum_grad - R.sum(accum_grad, axis=0) 
+        accum_grad = R.div(g.one,batch_size) * gamma * self.stddev_inv * (batch_size * accum_grad - R.sum(accum_grad, axis=0) 
                                                                             - self.X_centered * R.square(self.stddev_inv) * R.sum(accum_grad * self.X_centered, axis=0))
         
         return accum_grad
@@ -184,14 +184,14 @@ class Dropout(Layer):
         self.trainable = True
 
     def forward_pass(self, X, training=True):
-        c = R.t(1) - R.t(self.p)
+        c = g.one - R.t(self.p)
         if training:
-            self._mask = np.random.uniform(size=X().shape) > self.p
-            c = R.t(self._mask)
+            self._mask = R.greater(R.random_uniform(g.zero,g.one,size=X().shape), R.t(self.p))
+            c = self._mask
         return X * c
 
     def backward_pass(self, accum_grad):
-        return accum_grad * R.t(self._mask)
+        return accum_grad * self._mask
 
     def output_shape(self):
         return self.input_shape
@@ -247,17 +247,17 @@ class Conv2D(Layer):
         # Initialize the weights
         filter_height, filter_width = self.filter_shape
         channels = self.input_shape[0]
-        limit = R.div(R.t(1), R.square_root(R.t(int(np.prod(self.filter_shape)))))
-        limit_value = limit()
-        # limit = 1 / math.sqrt(np.prod(self.filter_shape))
-        self.W  = R.t(np.random.uniform(-limit_value, limit_value, size=(self.n_filters, channels, filter_height, filter_width)))
+        limit = R.div(g.one, R.square_root(R.prod(R.t(self.filter_shape))))
+
+        self.W = R.random_uniform(R.neg(limit), limit, size=(self.n_filters, channels, filter_height, filter_width))
         self.w0 = R.t(np.zeros((self.n_filters, 1)))
         # Weight optimizers
         self.W_opt  = copy.copy(optimizer)
         self.w0_opt = copy.copy(optimizer)
 
     def parameters(self):
-        return R.t(int(np.prod(self.W().shape))) + R.t(int(np.prod(self.w0().shape)))
+        return R.prod(R.shape(self.W)) + R.prod(R.shape(self.w0))
+
 
     def forward_pass(self, X, training=True):
         batch_size, channels, height, width = X().shape
@@ -266,27 +266,29 @@ class Conv2D(Layer):
         # (enables dot product between input and weights)
         self.X_col = image_to_column(X, self.filter_shape, stride=self.stride, output_shape=self.padding)
         # Turn weights into column shape
-        self.W_col = R.t(self.W().reshape((self.n_filters, -1)))
+        self.W_col = self.W.reshape(shape=(self.n_filters, -1))
         # Calculate output
         output = self.W_col.dot(self.X_col) + self.w0
         # Reshape into (n_filters, out_height, out_width, batch_size)
-        output = output().reshape(self.output_shape() + (batch_size, ))
+        output = output.reshape(shape=(self.output_shape() + (batch_size, )))
         # Redistribute axises so that batch size comes first
-        return R.t(output.transpose(3,0,1,2))    
+        return output.transpose(axes=(3,0,1,2))    
+
 
     def backward_pass(self, accum_grad):
         # Reshape accumulated gradient into column shape
-        accum_grad = R.t(accum_grad().transpose(1, 2, 3, 0).reshape(self.n_filters, -1))
+        accum_grad = accum_grad.transpose(axes=(1, 2, 3, 0)).reshape(shape=(self.n_filters, -1))
 
         if self.trainable:
             # Take dot product between column shaped accum. gradient and column shape
             # layer input to determine the gradient at the layer with respect to layer weights
             # grad_w = accum_grad.dot(R.transpose(self.X_col)).reshape(shape=list(self.W().shape))
-            grad_w = R.t(accum_grad().dot(self.X_col().T).reshape(self.W().shape))
-            # grad_w = R.reshape(accum_grad.dot(R.transpose(self.X_col)),shape=self.W().shape.to_list())
+            # grad_w = R.t(accum_grad().dot(self.X_col().T).reshape(self.W().shape))
+            grad_w = accum_grad.dot(self.X_col.transpose()).reshape(shape=self.W().shape)
+
 
             # The gradient with respect to bias terms is the sum similarly to in Dense layer
-            grad_w0 = R.t(np.sum(accum_grad(), axis=1, keepdims=True))
+            grad_w0 = R.sum(accum_grad, axis=1, keepdims="True")
 
             # Update the layers weights
             self.W = self.W_opt.update(self.W, grad_w)
@@ -343,29 +345,30 @@ class PoolingLayer(Layer):
 
         _, out_height, out_width = self.output_shape()
 
-        X = R.t(X().reshape(batch_size*channels, 1, height, width))
+        X = X.reshape(shape=(batch_size * channels, 1, height, width))
+
         X_col = image_to_column(X, self.pool_shape, self.stride, self.padding)
 
         # MaxPool or AveragePool specific method
         output = self._pool_forward(X_col)
 
-        output = output().reshape(out_height, out_width, batch_size, channels)
-        output = output.transpose(2, 3, 0, 1)
+        output = output.reshape(shape=(out_height, out_width, batch_size, channels))
+        output = output.transpose(axes=(2, 3, 0, 1))
 
-        return R.t(output)
+        return output
 
     def backward_pass(self, accum_grad):
         batch_size, _, _, _ = accum_grad().shape
         channels, height, width = self.input_shape
-        accum_grad = R.t(accum_grad().transpose(2, 3, 0, 1).ravel())
+        accum_grad = accum_grad.transpose(axes=(2, 3, 0, 1)).ravel()
 
         # MaxPool or AveragePool specific method
         accum_grad_col = self._pool_backward(accum_grad)
 
         accum_grad = column_to_image(accum_grad_col, (batch_size * channels, 1, height, width), self.pool_shape, self.stride, 0)
-        accum_grad = accum_grad().reshape((batch_size,) + self.input_shape)
+        accum_grad = accum_grad.reshape(shape=((batch_size,) + self.input_shape))
 
-        return R.t(accum_grad)
+        return accum_grad
 
     def output_shape(self):
         channels, height, width = self.input_shape
@@ -378,7 +381,8 @@ class PoolingLayer(Layer):
 
 class MaxPooling2D(PoolingLayer):
     def _pool_forward(self, X_col):
-        arg_max = np.argmax(X_col(), axis=0).flatten()
+        arg_max = R.argmax(X_col, axis=0).flatten()
+        arg_max = arg_max()
         output = X_col()[arg_max, range(arg_max.size)]
         self.cache = arg_max
         return R.t(output)
@@ -462,10 +466,10 @@ def column_to_image(cols, images_shape, filter_shape, stride, output_shape='same
     # and the image
     k, i, j = get_im2col_indices(images_shape, filter_shape, (pad_h, pad_w), stride)
 
-    cols = cols().reshape(channels * np.prod(filter_shape), -1, batch_size)
-    cols = cols.transpose(2, 0, 1)
+    cols = cols.reshape(shape=(channels * np.prod(filter_shape), -1, batch_size))
+    cols = cols.transpose(axes=(2, 0, 1))
     # Add column content to the images at the indices
-    np.add.at(images_padded, (slice(None), k, i, j), cols)
+    np.add.at(images_padded, (slice(None), k, i, j), cols())
 
     # Return image without padding
     return R.t(images_padded[:, :, pad_h[0]:height+pad_h[0], pad_w[0]:width+pad_w[0]])
