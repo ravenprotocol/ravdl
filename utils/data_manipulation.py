@@ -1,5 +1,5 @@
 import numpy as np
-import ravop as R
+import ravop.ravop as R
 
 def batch_iterator(X, y=None, batch_size=64):
     """ Simple batch generator """

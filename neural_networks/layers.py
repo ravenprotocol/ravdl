@@ -4,7 +4,7 @@ import numpy as np
 import copy
 from ..globals import globals as g
 from .activation_functions import Sigmoid, Softmax, TanH, ReLU
-import ravop as R
+import ravop.ravop as R
 
 class Layer(object):
 

@@ -1,4 +1,4 @@
-import ravop as R
+import ravop.ravop as R
 from ..globals import globals as g
 
 class Sigmoid():
