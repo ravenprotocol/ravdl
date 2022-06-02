@@ -1,4 +1,4 @@
-import ravop as R
+import ravop.ravop as R
 import numpy as np
 from ..globals import globals as g
 

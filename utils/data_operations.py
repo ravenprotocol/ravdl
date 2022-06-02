@@ -1,4 +1,4 @@
-import ravop as R
+import ravop.ravop as R
 
 def accuracy_score(y_true, y_pred):
     """ Compare y_true to y_pred and return the accuracy """

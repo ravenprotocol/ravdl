@@ -5,7 +5,7 @@ import numpy as np
 from ..utils import batch_iterator
 from ..utils.misc import bar_widgets
 from ..globals import globals as g
-import ravop as R
+import ravop.ravop as R
 
 
 class NeuralNetwork():
