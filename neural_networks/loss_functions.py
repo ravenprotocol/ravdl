@@ -1,6 +1,6 @@
 from __future__ import division
 import numpy as np
-import ravop.ravop as R
+import ravop as R
 from ..utils import accuracy_score
 from ..globals import globals as g
 

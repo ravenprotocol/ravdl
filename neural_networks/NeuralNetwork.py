@@ -5,7 +5,7 @@ import numpy as np
 from ..utils import batch_iterator
 from ..utils.misc import bar_widgets
 from ..globals import globals as g
-import ravop.ravop as R
+import ravop as R
 
 
 class NeuralNetwork():
@@ -80,23 +80,18 @@ class NeuralNetwork():
 
     def fit(self, X, y, n_epochs, batch_size):
         """ Trains the model for a fixed number of epochs """
-        X = R.t(X)
-        y = R.t(y)
-        # for _ in self.progressbar(range(n_epochs)):
         for epoch in range(1, n_epochs + 1):
             print('\nEpoch: ', epoch)
             batch_error = []
+            batch_num = 1
             for X_batch, y_batch in batch_iterator(X, y, batch_size=batch_size):
                 loss, _ = self.train_on_batch(X_batch, y_batch)
-                batch_error.append(loss())
-            print("   Batch Error: ", batch_error)
-            self.errors["training"].append(np.mean(batch_error))
+                loss.persist_op(name = "training_loss_epoch_{}_batch_{}".format(epoch,batch_num))
+                batch_num += 1
 
             if self.val_set is not None:
                 val_loss, _ = self.test_on_batch(self.val_set["X"], self.val_set["y"])
-                self.errors["validation"].append(val_loss())
-
-        return self.errors["training"], self.errors["validation"]
+                val_loss.persist_op(name="val_loss_epoch_{}".format(epoch))
 
     def _forward_pass(self, X, training=True):
         """ Calculate the output of the NN """
@@ -121,7 +116,7 @@ class NeuralNetwork():
         tot_params = 0
         for layer in self.layers:
             layer_name = layer.layer_name()
-            params = layer.parameters()()
+            params = layer.parameters()
             out_shape = layer.output_shape()
             table_data.append([layer_name, str(params), str(out_shape)])
             tot_params += params
