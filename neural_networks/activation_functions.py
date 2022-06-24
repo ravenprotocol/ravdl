@@ -1,4 +1,4 @@
-import ravop.ravop as R
+import ravop as R
 from ..globals import globals as g
 
 class Sigmoid():
@@ -26,8 +26,8 @@ class TanH():
 class ReLU():
     def __call__(self, x):
         condition = R.greater_equal(x, g.zero)
-        return R.where(x,g.zero,condition=condition().tolist())
+        return R.where(x,g.zero,condition=condition)
 
     def gradient(self, x):
         condition = R.greater_equal(x, g.zero)
-        return R.where(g.one,g.zero,condition=condition().tolist())
+        return R.where(g.one,g.zero,condition=condition)

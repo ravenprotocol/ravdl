@@ -4,7 +4,7 @@ import numpy as np
 import copy
 from ..globals import globals as g
 from .activation_functions import Sigmoid, Softmax, TanH, ReLU
-import ravop.ravop as R
+import ravop as R
 
 class Layer(object):
 
@@ -19,7 +19,7 @@ class Layer(object):
 
     def parameters(self):
         """ The number of trainable parameters used by the layer """
-        return g.zero
+        return 0
 
     def forward_pass(self, X, training):
         """ Propogates the signal forward in the network """
@@ -60,12 +60,18 @@ class Dense(Layer):
         limit = R.div(g.one, R.square_root(R.t(int(self.input_shape[0]))))
         self.W = R.random_uniform(R.neg(limit), limit, size=(int(self.input_shape[0]), self.n_units))
         self.w0 = R.t(np.zeros((1,self.n_units)))
+
+        # np equivalent for summary
+        np_limit = 1 / math.sqrt(self.input_shape[0])
+        self.np_W  = np.random.uniform(-np_limit, np_limit, (self.input_shape[0], self.n_units))
+        self.np_w0 = np.zeros((1, self.n_units))
+
         # Weight optimizers
         self.W_opt  = copy.copy(optimizer)
         self.w0_opt = copy.copy(optimizer)
 
     def parameters(self): 
-        return R.prod(R.shape(self.W)) + R.prod(R.shape(self.w0))
+        return np.prod(self.np_W.shape) + np.prod(self.np_w0.shape)
 
     def forward_pass(self, X, training=True):
         self.layer_input = X
@@ -106,13 +112,18 @@ class BatchNormalization(Layer):
         # Initialize the parameters
         self.gamma  = R.t(np.ones(self.input_shape))
         self.beta = R.t(np.zeros(self.input_shape))
+
+        # np equivalent for summary params
+        self.np_gamma = np.ones(self.input_shape)
+        self.np_beta = np.zeros(self.input_shape)
+        
+
         # parameter optimizers
         self.gamma_opt  = copy.copy(optimizer)
         self.beta_opt = copy.copy(optimizer)
 
     def parameters(self):
-        return R.prod(R.shape(self.gamma)) + R.prod(R.shape(self.beta))
-        
+        return np.prod(self.np_gamma.shape) + np.prod(self.np_beta.shape)        
 
     def forward_pass(self, X, training=True):
 
@@ -153,7 +164,7 @@ class BatchNormalization(Layer):
             self.gamma = self.gamma_opt.update(self.gamma, grad_gamma)
             self.beta = self.beta_opt.update(self.beta, grad_beta)
 
-        batch_size = R.t(accum_grad().shape[0])
+        batch_size = accum_grad.shape(index=0)
 
         # The gradient of the loss with respect to the layer inputs (use weights and statistics from forward pass)
         
@@ -186,7 +197,7 @@ class Dropout(Layer):
     def forward_pass(self, X, training=True):
         c = g.one - R.t(self.p)
         if training:
-            self._mask = R.greater(R.random_uniform(g.zero,g.one,size=X().shape), R.t(self.p))
+            self._mask = R.greater(R.random_uniform(g.zero,g.one,size=R.shape(X)), R.t(self.p))#X().shape
             c = self._mask
         return X * c
 
@@ -251,16 +262,21 @@ class Conv2D(Layer):
 
         self.W = R.random_uniform(R.neg(limit), limit, size=(self.n_filters, channels, filter_height, filter_width))
         self.w0 = R.t(np.zeros((self.n_filters, 1)))
+
+        # equivalent for summary params
+        np_limit = 1 / math.sqrt(np.prod(self.filter_shape))
+        self.np_W  = np.random.uniform(-np_limit, np_limit, size=(self.n_filters, channels, filter_height, filter_width))
+        self.np_w0 = np.zeros((self.n_filters, 1))
+
         # Weight optimizers
         self.W_opt  = copy.copy(optimizer)
         self.w0_opt = copy.copy(optimizer)
 
     def parameters(self):
-        return R.prod(R.shape(self.W)) + R.prod(R.shape(self.w0))
-
+        return np.prod(self.np_W.shape) + np.prod(self.np_w0.shape)
 
     def forward_pass(self, X, training=True):
-        batch_size, channels, height, width = X().shape
+        batch_size = R.shape(X).index(indices='[0]')#X().shape
         self.layer_input = X
         # Turn image shape into column shape
         # (enables dot product between input and weights)
@@ -270,7 +286,8 @@ class Conv2D(Layer):
         # Calculate output
         output = self.W_col.dot(self.X_col) + self.w0
         # Reshape into (n_filters, out_height, out_width, batch_size)
-        output = output.reshape(shape=(self.output_shape() + (batch_size, )))
+        output = output.reshape(shape=R.join_to_list(R.t(self.output_shape()),batch_size))
+        # output = output.reshape(shape=(self.output_shape() + (batch_size, )))
         # Redistribute axises so that batch size comes first
         return output.transpose(axes=(3,0,1,2))    
 
@@ -284,7 +301,7 @@ class Conv2D(Layer):
             # layer input to determine the gradient at the layer with respect to layer weights
             # grad_w = accum_grad.dot(R.transpose(self.X_col)).reshape(shape=list(self.W().shape))
             # grad_w = R.t(accum_grad().dot(self.X_col().T).reshape(self.W().shape))
-            grad_w = accum_grad.dot(self.X_col.transpose()).reshape(shape=self.W().shape)
+            grad_w = accum_grad.dot(self.X_col.transpose()).reshape(shape=R.shape(self.W)) #self.W().shape)
 
 
             # The gradient with respect to bias terms is the sum similarly to in Dense layer
@@ -298,7 +315,8 @@ class Conv2D(Layer):
         accum_grad = R.transpose(self.W_col).dot(accum_grad)
         # Reshape from column shape to image shape
         accum_grad = column_to_image(accum_grad,
-                                self.layer_input().shape,
+                                # self.layer_input().shape,
+                                R.shape(self.layer_input),
                                 self.filter_shape,
                                 stride=self.stride,
                                 output_shape=self.padding)
@@ -320,11 +338,15 @@ class Flatten(Layer):
         self.input_shape = input_shape
 
     def forward_pass(self, X, training=True):
-        self.prev_shape = X().shape
-        return X.reshape(shape=[self.prev_shape[0], -1])
+        # self.prev_shape = X().shape
+        self.prev_shape = R.shape(X)
+        zeroth_index = self.prev_shape.index(indices='[0]')
+        new_shape = R.join_to_list(zeroth_index,R.t(-1))
+        return X.reshape(shape=new_shape)
+        # return X.reshape(shape=[self.prev_shape[0], -1])
 
     def backward_pass(self, accum_grad):
-        return accum_grad.reshape(shape=list(self.prev_shape))
+        return accum_grad.reshape(shape=self.prev_shape)
 
     def output_shape(self):
         return (int(np.prod(self.input_shape)),)
@@ -341,32 +363,54 @@ class PoolingLayer(Layer):
     def forward_pass(self, X, training=True):
         self.layer_input = X
 
-        batch_size, channels, height, width = X().shape
+        # batch_size, channels, height, width = X().shape
+        X_shape = R.shape(X)
+        batch_size = X_shape.index(indices='[0]')
+        channels = X_shape.index(indices='[1]')
+        height = X_shape.index(indices='[2]')
+        width = X_shape.index(indices='[3]')
 
         _, out_height, out_width = self.output_shape()
 
-        X = X.reshape(shape=(batch_size * channels, 1, height, width))
+        X_reshape = R.join_to_list(batch_size*channels,R.t(1))
+        X_reshape = R.join_to_list(X_reshape,height)
+        X_reshape = R.join_to_list(X_reshape,width)
+
+        X = X.reshape(shape=X_reshape)
 
         X_col = image_to_column(X, self.pool_shape, self.stride, self.padding)
 
         # MaxPool or AveragePool specific method
         output = self._pool_forward(X_col)
 
-        output = output.reshape(shape=(out_height, out_width, batch_size, channels))
+        out_height_width = R.t((out_height,out_width))
+        output_reshape = R.join_to_list(output_reshape,batch_size)
+        output_reshape = R.join_to_list(output_reshape, channels)
+
+        output = output.reshape(shape=output_reshape)
         output = output.transpose(axes=(2, 3, 0, 1))
 
         return output
 
     def backward_pass(self, accum_grad):
-        batch_size, _, _, _ = accum_grad().shape
+        # batch_size, _, _, _ = accum_grad().shape
+        accum_grad_shape = R.shape(accum_grad)
+        batch_size = accum_grad_shape.index(indices='[0]')
+
         channels, height, width = self.input_shape
         accum_grad = accum_grad.transpose(axes=(2, 3, 0, 1)).ravel()
 
         # MaxPool or AveragePool specific method
         accum_grad_col = self._pool_backward(accum_grad)
 
-        accum_grad = column_to_image(accum_grad_col, (batch_size * channels, 1, height, width), self.pool_shape, self.stride, 0)
-        accum_grad = accum_grad.reshape(shape=((batch_size,) + self.input_shape))
+        images_shape = R.join_to_list(batch_size*R.t(channels),R.t(1))
+        images_shape = R.join_to_list(images_shape,R.t(height))
+        images_shape = R.join_to_list(images_shape,R.t(width))
+
+        accum_grad = column_to_image(accum_grad_col, images_shape, self.pool_shape, self.stride, 0)
+        accum_grad_shape1 = R.join_to_list(batch_size,R.t(self.input_shape))
+        # accum_grad = accum_grad.reshape(shape=((batch_size,) + self.input_shape))
+        accum_grad = accum_grad.reshape(shape=accum_grad_shape1)
 
         return accum_grad
 
@@ -400,18 +444,25 @@ def image_to_column(images, filter_shape, stride, output_shape='same'):
     pad_h, pad_w = determine_padding(filter_shape, output_shape)
 
     # Add padding to the image
-    images_padded = np.pad(images(), ((0, 0), (0, 0), pad_h, pad_w), mode='constant')
+    # images_padded = np.pad(images(), ((0, 0), (0, 0), pad_h, pad_w), mode='constant')
+    images_padded = R.pad(images, sequence=((0, 0), (0, 0), pad_h, pad_w), mode='constant')
 
     # Calculate the indices where the dot products are to be applied between weights
     # and the image
-    k, i, j = get_im2col_indices(images().shape, filter_shape, (pad_h, pad_w), stride)
+    # k, i, j = get_im2col_indices(images().shape, filter_shape, (pad_h, pad_w), stride)
+    k, i, j = get_im2col_indices(R.shape(images), filter_shape, (pad_h, pad_w), stride)
 
     # Get content from image at those indices
-    cols = images_padded[:, k, i, j]
-    channels = images().shape[1]
+    # cols = images_padded[:, k, i, j]
+    # cols = R.index(images_padded, indices="[:, {}, {}, {}]".format(k.tolist(),i.tolist(),j.tolist()))
+    cols = R.cnn_index(images_padded,index1=k,index2=i,index3=j)
+    # channels = images().shape[1]
+    channels = R.shape(images).index(indices='[1]')
+    product = R.t(filter_height * filter_width) * channels
+    cols_shape = R.join_to_list(product,R.t(-1))
     # Reshape content into column shape
-    cols = cols.transpose(1, 2, 0).reshape(filter_height * filter_width * channels, -1)
-    return R.t(cols)
+    cols = cols.transpose(axes=(1, 2, 0)).reshape(shape=cols_shape)
+    return cols
 
 def determine_padding(filter_shape, output_shape="same"):
 
@@ -437,39 +488,78 @@ def determine_padding(filter_shape, output_shape="same"):
 # Reference: CS231n Stanford
 def get_im2col_indices(images_shape, filter_shape, padding, stride=1):
     # First figure out what the size of the output should be
-    batch_size, channels, height, width = images_shape
+    # batch_size, channels, height, width = images_shape
+    batch_size = R.index(images_shape, indices="[0]")
+    channels = R.index(images_shape, indices="[1]")
+    height = R.index(images_shape, indices="[2]")
+    width = R.index(images_shape, indices="[3]")
+
     filter_height, filter_width = filter_shape
+    filter_height = R.t(filter_height)
+    filter_width = R.t(filter_width)
+
     pad_h, pad_w = padding
-    out_height = int((height + np.sum(pad_h) - filter_height) / stride + 1)
-    out_width = int((width + np.sum(pad_w) - filter_width) / stride + 1)
+    # out_height = int((height() + np.sum(pad_h) - filter_height) / stride + 1)
+    out_height = R.ravint(R.div(height + R.t(np.sum(pad_h)) - filter_height,R.t(stride))+R.t(1))
+    # out_width = int((width() + np.sum(pad_w) - filter_width) / stride + 1)
+    out_width = R.ravint(R.div(width + R.t(np.sum(pad_w)) - filter_width,R.t(stride))+R.t(1))
 
-    i0 = np.repeat(np.arange(filter_height), filter_width)
-    i0 = np.tile(i0, channels)
-    i1 = stride * np.repeat(np.arange(out_height), out_width)
-    j0 = np.tile(np.arange(filter_width), filter_height * channels)
-    j1 = stride * np.tile(np.arange(out_width), out_height)
-    i = i0.reshape(-1, 1) + i1.reshape(1, -1)
-    j = j0.reshape(-1, 1) + j1.reshape(1, -1)
+    # i0 = np.repeat(np.arange(filter_height), filter_width)
+    i0 = R.repeat(R.arange(filter_height), repeats=filter_width)
+    # i0 = np.tile(i0, channels)
+    i0 = R.tile(i0, reps=channels) #int(channels()))
+    # i1 = stride * np.repeat(np.arange(out_height), out_width)
+    i1 = R.t(stride) * R.repeat(R.arange(out_height), repeats=out_width)
+    # j0 = np.tile(np.arange(filter_width), filter_height * channels)
+    j0 = R.tile(R.arange(filter_width), reps= filter_height * channels) #int(channels()))
+    # j1 = stride * np.tile(np.arange(out_width), out_height)
+    j1 = R.t(stride) * R.tile(R.arange(out_width), reps = out_height)
+    # i = i0.reshape(-1, 1) + i1.reshape(1, -1)
+    i = R.reshape(i0, shape=(-1,1)) + R.reshape(i1, shape=(1,-1))
+    # j = j0.reshape(-1, 1) + j1.reshape(1, -1)
+    j = R.reshape(j0, shape=(-1,1)) + R.reshape(j1, shape=(1,-1))
 
-    k = np.repeat(np.arange(channels), filter_height * filter_width).reshape(-1, 1)
+    # k = np.repeat(np.arange(channels), filter_height * filter_width).reshape(-1, 1)
+    k = R.reshape(R.repeat(R.arange(channels), repeats = filter_height * filter_width), shape=(-1,1))
 
     return (k, i, j)
 
 def column_to_image(cols, images_shape, filter_shape, stride, output_shape='same'):
-    batch_size, channels, height, width = images_shape
+    # batch_size, channels, height, width = images_shape()
+    batch_size = R.index(images_shape, indices="[0]")
+    channels = R.index(images_shape, indices="[1]")
+    height = R.index(images_shape, indices="[2]")
+    width = R.index(images_shape, indices="[3]")
+
     pad_h, pad_w = determine_padding(filter_shape, output_shape)
-    height_padded = height + np.sum(pad_h)
-    width_padded = width + np.sum(pad_w)
-    images_padded = np.zeros((batch_size, channels, height_padded, width_padded))
+    height_padded = height + R.t(np.sum(pad_h))
+    width_padded = width + R.t(np.sum(pad_w))
+
+    zeros_param = R.join_to_list(batch_size,channels)
+    zeros_param = R.join_to_list(zeros_param,height_padded)
+    zeros_param = R.join_to_list(zeros_param,width_padded)
+
+    # images_padded = np.zeros((batch_size, channels, height_padded, width_padded))
+    images_padded = R.zeros(zeros_param)
 
     # Calculate the indices where the dot products are applied between weights
     # and the image
     k, i, j = get_im2col_indices(images_shape, filter_shape, (pad_h, pad_w), stride)
 
-    cols = cols.reshape(shape=(channels * np.prod(filter_shape), -1, batch_size))
+    cols_reshape = R.join_to_list(channels * R.t(np.prod(filter_shape)), R.t(-1))
+    cols_reshape = R.join_to_list(cols_reshape,batch_size)
+
+    cols = cols.reshape(shape=cols_reshape)
+
+    # cols = cols.reshape(shape=(channels * np.prod(filter_shape), -1, batch_size))
     cols = cols.transpose(axes=(2, 0, 1))
     # Add column content to the images at the indices
-    np.add.at(images_padded, (slice(None), k, i, j), cols())
+    
+    images_padded = R.cnn_add_at(images_padded, cols, index1=k, index2=i, index3=j)
+    
+    # np.add.at(images_padded, (slice(None), k, i, j), cols())
+
+    return R.cnn_index_2(images_padded, pad_h=R.t(pad_h[0]), height=height, pad_w=R.t(pad_w[0]), width=width)
 
     # Return image without padding
-    return R.t(images_padded[:, :, pad_h[0]:height+pad_h[0], pad_w[0]:width+pad_w[0]])
+    # return R.t(images_padded[:, :, pad_h[0]:height+pad_h[0], pad_w[0]:width+pad_w[0]])

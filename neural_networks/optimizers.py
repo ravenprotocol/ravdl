@@ -1,4 +1,4 @@
-import ravop.ravop as R
+import ravop as R
 import numpy as np
 from ..globals import globals as g
 
@@ -12,7 +12,7 @@ class RMSprop():
     def update(self, w, grad_wrt_w):
         # If not initialized
         if self.Eg is None:
-            self.Eg = R.t(np.zeros(np.shape(grad_wrt_w())))
+            self.Eg = R.zeros(R.shape(grad_wrt_w))
 
         self.Eg = self.rho * self.Eg + (g.one - self.rho) * R.pow(grad_wrt_w, g.two)
         # Divide the learning rate for a weight by a running average of the magnitudes of recent
@@ -32,8 +32,8 @@ class Adam():
     def update(self, w, grad_wrt_w):
         # If not initialized
         if self.m is None:
-            self.m = R.t(np.zeros(np.shape(grad_wrt_w())))
-            self.v = R.t(np.zeros(np.shape(grad_wrt_w())))
+            self.m = R.zeros(R.shape(grad_wrt_w))
+            self.v = R.zeros(R.shape(grad_wrt_w))
         
         self.m = self.b1 * self.m + (g.one - self.b1) * grad_wrt_w
         self.v = self.b2 * self.v + (g.one - self.b2) * R.pow(grad_wrt_w, g.two)
