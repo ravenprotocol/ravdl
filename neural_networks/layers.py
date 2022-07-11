@@ -383,7 +383,7 @@ class PoolingLayer(Layer):
         # MaxPool or AveragePool specific method
         output = self._pool_forward(X_col)
 
-        out_height_width = R.t((out_height,out_width))
+        output_reshape = R.t((out_height,out_width))
         output_reshape = R.join_to_list(output_reshape,batch_size)
         output_reshape = R.join_to_list(output_reshape, channels)
 
@@ -407,7 +407,7 @@ class PoolingLayer(Layer):
         images_shape = R.join_to_list(images_shape,R.t(height))
         images_shape = R.join_to_list(images_shape,R.t(width))
 
-        accum_grad = column_to_image(accum_grad_col, images_shape, self.pool_shape, self.stride, 0)
+        accum_grad = column_to_image(accum_grad_col, images_shape, self.pool_shape, self.stride, 'same')
         accum_grad_shape1 = R.join_to_list(batch_size,R.t(self.input_shape))
         # accum_grad = accum_grad.reshape(shape=((batch_size,) + self.input_shape))
         accum_grad = accum_grad.reshape(shape=accum_grad_shape1)
@@ -426,16 +426,23 @@ class PoolingLayer(Layer):
 class MaxPooling2D(PoolingLayer):
     def _pool_forward(self, X_col):
         arg_max = R.argmax(X_col, axis=0).flatten()
-        arg_max = arg_max()
-        output = X_col()[arg_max, range(arg_max.size)]
+        
+        index = R.combine_to_list(arg_max, R.arange(R.size(arg_max)))
+        output = R.index(X_col, indices=index)     
+
+        # output = X_col()[arg_max, range(arg_max.size)]
         self.cache = arg_max
-        return R.t(output)
+        return output #R.t(output)
 
     def _pool_backward(self, accum_grad):
-        accum_grad_col = np.zeros((np.prod(self.pool_shape), accum_grad().size))
+        zeros_shape = R.join_to_list(R.prod(R.t(self.pool_shape)), R.size(accum_grad))
+        accum_grad_col = R.zeros(zeros_shape)
+        # accum_grad_col = np.zeros((np.prod(self.pool_shape), accum_grad().size))
         arg_max = self.cache
-        accum_grad_col[arg_max, range(accum_grad().size)] = accum_grad()
-        return R.t(accum_grad_col)
+        index = R.combine_to_list(arg_max, R.arange(R.size(accum_grad)))
+        accum_grad_col = R.set_value(accum_grad_col,accum_grad,indices=index)
+        # accum_grad_col[arg_max, range(accum_grad().size)] = accum_grad()
+        return accum_grad_col #R.t(accum_grad_col)
 
 
 def image_to_column(images, filter_shape, stride, output_shape='same'):
