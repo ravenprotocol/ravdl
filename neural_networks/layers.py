@@ -5,6 +5,8 @@ import copy
 from ..globals import globals as g
 from .activation_functions import Sigmoid, Softmax, TanH, ReLU
 import ravop as R
+import onnx
+from ..utils import create_initializer_tensor
 
 class Layer(object):
 
@@ -13,9 +15,16 @@ class Layer(object):
         pass method """
         self.input_shape = shape
 
-    def layer_name(self):
+    def set_layer_name(self, name=None):
+        """ Sets the name of the layer. """
+        if name is not None:
+            self.layer_name = name
+        else:
+            self.layer_name = self.__class__.__name__
+
+    def get_layer_name(self):
         """ The name of the layer. Used in model summary. """
-        return self.__class__.__name__
+        return self.layer_name
 
     def parameters(self):
         """ The number of trainable parameters used by the layer """
@@ -98,29 +107,71 @@ class Dense(Layer):
     def output_shape(self):
         return (self.n_units, )
 
+    def save_weights(self):
+        self.W.persist_op(self.get_layer_name() + "_W")
+        self.w0.persist_op(self.get_layer_name() + "_w0")
+
+    def fetch_onnx_params(self,input_initializer, output_initializer = None):
+        W_fetched = R.fetch_persisting_op(op_name=self.get_layer_name() + "_W")
+        w0_fetched = R.fetch_persisting_op(op_name=self.get_layer_name() + "_w0")
+
+        if isinstance(W_fetched, list):
+            W_fetched = np.array(W_fetched)
+        if isinstance(w0_fetched, list):
+            w0_fetched = np.array(w0_fetched)
+
+        dense_W_initializer_name = self.layer_name + "_W"
+        W_initializer_tensor = create_initializer_tensor(name=dense_W_initializer_name, tensor_array= W_fetched, data_type=onnx.TensorProto.FLOAT)
+        dense_w0_initializer_name = self.layer_name + "_w0"
+        w0_initializer_tensor = create_initializer_tensor(name=dense_w0_initializer_name, tensor_array= w0_fetched, data_type=onnx.TensorProto.FLOAT)
+
+        if output_initializer:
+            dense_output_node_name = output_initializer
+        else:
+            dense_output_node_name = self.layer_name + "_output"
+
+        dense_node = onnx.helper.make_node(
+            name=self.layer_name,
+            op_type="Gemm",
+            inputs=[input_initializer, dense_W_initializer_name, dense_w0_initializer_name],
+            outputs=[dense_output_node_name]
+        )
+
+        return dense_node, dense_output_node_name, [W_initializer_tensor, w0_initializer_tensor]
+
 class BatchNormalization(Layer):
     """Batch normalization.
     """
     def __init__(self, momentum=0.99):
         self.momentum = R.t(momentum)
+        self.float_momentum = momentum
         self.trainable = True
         self.eps = R.t(0.01)
+        self.float_eps = 0.01
         self.running_mean = None
         self.running_var = None
 
     def initialize(self, optimizer):
         # Initialize the parameters
-        self.gamma  = R.t(np.ones(self.input_shape))
-        self.beta = R.t(np.zeros(self.input_shape))
+        if len(self.input_shape) == 1:
+            shape = (1, self.input_shape[0])
+        else:
+            shape = (1,self.input_shape[0], 1,1)
+
+        self.gamma  = R.t(np.ones(shape))
+        self.beta = R.t(np.zeros(shape))
 
         # np equivalent for summary params
-        self.np_gamma = np.ones(self.input_shape)
-        self.np_beta = np.zeros(self.input_shape)
+        self.np_gamma = np.ones(shape)
+        self.np_beta = np.zeros(shape)
         
 
         # parameter optimizers
         self.gamma_opt  = copy.copy(optimizer)
         self.beta_opt = copy.copy(optimizer)
+
+        self.running_mean = R.t(np.zeros(shape))
+        self.running_var = R.t(np.ones(shape))
 
     def parameters(self):
         return np.prod(self.np_gamma.shape) + np.prod(self.np_beta.shape)        
@@ -128,13 +179,17 @@ class BatchNormalization(Layer):
     def forward_pass(self, X, training=True):
 
         # Initialize running mean and variance if first run
-        if self.running_mean is None:
-            self.running_mean = R.mean(X, axis=0)
-            self.running_var = R.variance(X, axis=0)
+        # if self.running_mean is None:
+        #     self.running_mean = R.mean(X, axis=0)
+        #     self.running_var = R.variance(X, axis=0)
 
         if training and self.trainable:
-            mean = R.mean(X, axis=0)
-            var = R.variance(X, axis=0)
+            if len(self.input_shape) == 1:
+                mean = R.mean(X, axis=0)
+                var = R.variance(X, axis=0)
+            else:
+                mean = R.mean(X, axis=(0,2,3), keepdims="True")
+                var = R.variance(X, axis=(0,2,3), keepdims="True")
             self.running_mean = self.momentum * self.running_mean + (g.one - self.momentum) * mean
             self.running_var = self.momentum * self.running_var + (g.one - self.momentum) * var
         else:
@@ -158,8 +213,12 @@ class BatchNormalization(Layer):
         # If the layer is trainable the parameters are updated
         if self.trainable:
             X_norm = self.X_centered * self.stddev_inv
-            grad_gamma = R.sum(accum_grad * X_norm, axis=0)
-            grad_beta = R.sum(accum_grad, axis=0)
+            if len(self.input_shape) == 1:
+                grad_gamma = R.sum(accum_grad * X_norm, axis=0, keepdims="True")
+                grad_beta = R.sum(accum_grad, axis=0, keepdims="True")
+            else:
+                grad_gamma = R.sum(accum_grad * X_norm, axis=(0,2,3), keepdims="True")
+                grad_beta = R.sum(accum_grad, axis=(0,2,3), keepdims="True")
 
             self.gamma = self.gamma_opt.update(self.gamma, grad_gamma)
             self.beta = self.beta_opt.update(self.beta, grad_beta)
@@ -167,14 +226,68 @@ class BatchNormalization(Layer):
         batch_size = accum_grad.shape(index=0)
 
         # The gradient of the loss with respect to the layer inputs (use weights and statistics from forward pass)
-        
-        accum_grad = R.div(g.one,batch_size) * gamma * self.stddev_inv * (batch_size * accum_grad - R.sum(accum_grad, axis=0) 
-                                                                            - self.X_centered * R.square(self.stddev_inv) * R.sum(accum_grad * self.X_centered, axis=0))
-        
+
+        if len(self.input_shape) == 1:
+            accum_grad = R.div(g.one,batch_size) * gamma * self.stddev_inv * (batch_size * accum_grad - R.sum(accum_grad, axis=0,keepdims="True") 
+                                                                                - self.X_centered * R.square(self.stddev_inv) * R.sum(accum_grad * self.X_centered, axis=0, keepdims="True"))
+        else:
+            accum_grad = R.div(g.one,batch_size) * gamma * self.stddev_inv * (batch_size * accum_grad - R.sum(accum_grad, axis=(0,2,3),keepdims="True") 
+                                                                                - self.X_centered * R.square(self.stddev_inv) * R.sum(accum_grad * self.X_centered, axis=(0,2,3), keepdims="True"))
+            
         return accum_grad
 
     def output_shape(self):
         return self.input_shape
+
+    def save_weights(self):
+        self.gamma.persist_op(self.get_layer_name() + "_gamma")
+        self.beta.persist_op(self.get_layer_name() + "_beta")
+        self.running_mean.persist_op(self.get_layer_name() + "_running_mean")
+        self.running_var.persist_op(self.get_layer_name() + "_running_var")
+
+    def fetch_onnx_params(self,input_initializer, output_initializer = None):
+        gamma_fetched = R.fetch_persisting_op(op_name=self.get_layer_name() + "_gamma")
+        beta_fetched = R.fetch_persisting_op(op_name=self.get_layer_name() + "_beta")
+        running_mean_fetched = R.fetch_persisting_op(op_name=self.get_layer_name() + "_running_mean")
+        running_var_fetched = R.fetch_persisting_op(op_name=self.get_layer_name() + "_running_var")
+
+        if isinstance(gamma_fetched, list):
+            gamma_fetched = np.array(gamma_fetched)
+        if isinstance(beta_fetched, list):
+            beta_fetched = np.array(beta_fetched)
+        if isinstance(running_mean_fetched, list):
+            running_mean_fetched = np.array(running_mean_fetched)
+        if isinstance(running_var_fetched, list):
+            running_var_fetched = np.array(running_var_fetched)
+
+        bn_gamma_initializer_name = self.layer_name + "_gamma"
+        gamma_initializer_tensor = create_initializer_tensor(name=bn_gamma_initializer_name, tensor_array= gamma_fetched.reshape((-1)), data_type=onnx.TensorProto.FLOAT)
+        bn_beta_initializer_name = self.layer_name + "_beta"
+        beta_initializer_tensor = create_initializer_tensor(name=bn_beta_initializer_name, tensor_array= beta_fetched.reshape((-1)), data_type=onnx.TensorProto.FLOAT)
+        bn_mean_initializer_name = self.layer_name + "_mean"
+        mean_initializer_tensor = create_initializer_tensor(name=bn_mean_initializer_name, tensor_array= running_mean_fetched.reshape((-1)), data_type=onnx.TensorProto.FLOAT)
+        bn_var_initializer_name = self.layer_name + "_var"
+        var_initializer_tensor = create_initializer_tensor(name=bn_var_initializer_name, tensor_array= running_var_fetched.reshape((-1)), data_type=onnx.TensorProto.FLOAT)
+        
+        if output_initializer:
+            bn_output_node_name = output_initializer
+        else:
+            bn_output_node_name = self.layer_name + "_output"
+
+        bn_node = onnx.helper.make_node(
+            name=self.layer_name,  # Name is optional.
+            op_type="BatchNormalization",
+            inputs=[
+                input_initializer, bn_gamma_initializer_name,
+                bn_beta_initializer_name, bn_mean_initializer_name,
+                bn_var_initializer_name
+            ],
+            momentum=self.float_momentum,
+            epsilon=self.float_eps,
+            outputs=[bn_output_node_name],
+        )
+
+        return bn_node, bn_output_node_name, [gamma_initializer_tensor, beta_initializer_tensor, mean_initializer_tensor, var_initializer_tensor]
 
 
 class Dropout(Layer):
@@ -187,7 +300,7 @@ class Dropout(Layer):
         The probability that unit x is set to zero.
     """
     def __init__(self, p=0.2):
-        self.p = p
+        self.p = R.t(p)
         self._mask = None
         self.input_shape = None
         self.n_units = None
@@ -195,11 +308,12 @@ class Dropout(Layer):
         self.trainable = True
 
     def forward_pass(self, X, training=True):
-        c = g.one - R.t(self.p)
+        # c = g.one - self.p
         if training:
-            self._mask = R.greater(R.random_uniform(g.zero,g.one,size=R.shape(X)), R.t(self.p))#X().shape
-            c = self._mask
-        return X * c
+            self._mask = R.greater(R.random_uniform(g.zero,g.one,size=R.shape(X)), self.p)#X().shape
+            c = self._mask * R.div(g.one,g.one-self.p)
+            return X * c
+        return X
 
     def backward_pass(self, accum_grad):
         return accum_grad * self._mask
@@ -207,11 +321,44 @@ class Dropout(Layer):
     def output_shape(self):
         return self.input_shape
 
+    def save_weights(self):
+        self.p.persist_op(self.get_layer_name() + "_p")
+
+    def fetch_onnx_params(self,input_initializer, output_initializer = None):
+        p_fetched = R.fetch_persisting_op(op_name=self.get_layer_name() + "_p")
+
+        if not isinstance(p_fetched, np.ndarray):
+            p_fetched = np.array(p_fetched)
+
+        dropout_p_initializer_name = self.layer_name + "_p"
+        p_initializer_tensor = create_initializer_tensor(name=dropout_p_initializer_name, tensor_array= p_fetched, data_type=onnx.TensorProto.FLOAT)
+    
+        if output_initializer:
+            dropout_output_node_name = output_initializer
+        else:
+            dropout_output_node_name = self.layer_name + "_output"
+
+        dropout_node = onnx.helper.make_node(
+            name=self.layer_name,
+            op_type="Dropout",
+            inputs=[input_initializer, dropout_p_initializer_name],
+            outputs=[dropout_output_node_name]
+        )
+
+        return dropout_node, dropout_output_node_name, [p_initializer_tensor]
+
 activation_functions = {
     'sigmoid': Sigmoid,
     'softmax': Softmax,
     'tanh': TanH,
     'relu': ReLU
+}
+
+onnx_activation_functions = {
+    'relu': 'Relu',
+    'sigmoid': 'Sigmoid',
+    'softmax': 'Softmax',
+    'tanh': 'Tanh'
 }
 
 class Activation(Layer):
@@ -228,8 +375,8 @@ class Activation(Layer):
         self.activation_func = activation_functions[name]()
         self.trainable = True
 
-    def layer_name(self):
-        return "Activation (%s)" % (self.activation_func.__class__.__name__)
+    # def layer_name(self):
+    #     return "Activation (%s)" % (self.activation_func.__class__.__name__)
 
     def forward_pass(self, X, training=True):
         self.layer_input = X
@@ -240,6 +387,26 @@ class Activation(Layer):
 
     def output_shape(self):
         return self.input_shape
+
+    def save_weights(self):
+        pass
+
+    def fetch_onnx_params(self,input_initializer, output_initializer = None):
+        if output_initializer:
+            activation_output_node_name = output_initializer
+        else:
+            activation_output_node_name = self.layer_name + "_output"
+
+        op_type = onnx_activation_functions[self.activation_name]
+
+        activation_node = onnx.helper.make_node(
+            name=self.layer_name,
+            op_type=op_type,
+            inputs=[input_initializer],
+            outputs=[activation_output_node_name]
+        )
+
+        return activation_node, activation_output_node_name, []
 
 
 class Conv2D(Layer):
@@ -330,6 +497,55 @@ class Conv2D(Layer):
         output_width = (width + np.sum(pad_w) - self.filter_shape[1]) / self.stride + 1
         return self.n_filters, int(output_height), int(output_width)
 
+    def save_weights(self):
+        self.W.persist_op(self.get_layer_name() + "_W")
+        self.w0.persist_op(self.get_layer_name() + "_w0")
+
+    def fetch_onnx_params(self,input_initializer, output_initializer = None):
+        W_fetched = R.fetch_persisting_op(op_name=self.get_layer_name() + "_W")
+        w0_fetched = R.fetch_persisting_op(op_name=self.get_layer_name() + "_w0")
+
+        if isinstance(W_fetched, list):
+            W_fetched = np.array(W_fetched)
+        if isinstance(w0_fetched, list):
+            w0_fetched = np.array(w0_fetched)
+
+        conv_W_initializer_name = self.layer_name + "_W"
+        W_initializer_tensor = create_initializer_tensor(name=conv_W_initializer_name, tensor_array= W_fetched, data_type=onnx.TensorProto.FLOAT)
+        conv_w0_initializer_name = self.layer_name + "_w0"
+        w0_initializer_tensor = create_initializer_tensor(name=conv_w0_initializer_name, tensor_array= w0_fetched, data_type=onnx.TensorProto.FLOAT)
+
+        if output_initializer:
+            conv_output_node_name = output_initializer
+        else:
+            conv_output_node_name = self.layer_name + "_output"
+
+        if self.padding == 'same':
+            pad = 'SAME_UPPER'
+        else:
+            pad = 'VALID'
+
+        if isinstance(self.stride, int):
+            stride = [self.stride, self.stride]
+        else:
+            stride = np.asarray(self.stride).tolist()
+
+        conv_node = onnx.helper.make_node(
+            name=self.layer_name,
+            op_type="Conv",
+            inputs=[
+                input_initializer, conv_W_initializer_name,
+                conv_w0_initializer_name
+            ],
+            outputs=[conv_output_node_name],
+            kernel_shape=np.asarray(self.filter_shape).tolist(),
+            pads=(1,1,1,1),
+            strides=stride
+        )
+
+        return conv_node, conv_output_node_name, [W_initializer_tensor, w0_initializer_tensor]
+
+
 class Flatten(Layer):
     """ Turns a multidimensional matrix into two-dimensional """
     def __init__(self, input_shape=None):
@@ -351,10 +567,30 @@ class Flatten(Layer):
     def output_shape(self):
         return (int(np.prod(self.input_shape)),)
 
+    def save_weights(self):
+        pass
+
+    def fetch_onnx_params(self,input_initializer, output_initializer = None):
+        if output_initializer:
+            flatten_output_node_name = output_initializer
+        else:
+            flatten_output_node_name = self.layer_name + "_output"
+
+        flatten_node = onnx.helper.make_node(
+            name=self.layer_name,  # Name is optional.
+            op_type="Flatten",
+            inputs=[
+                input_initializer
+            ],
+            outputs=[flatten_output_node_name],
+        )
+
+        return flatten_node, flatten_output_node_name, []
+
 class PoolingLayer(Layer):
     """A parent class of MaxPooling2D and AveragePooling2D
     """
-    def __init__(self, pool_shape=(2, 2), stride=1, padding=0):
+    def __init__(self, pool_shape=(2, 2), stride=1, padding="same"):
         self.pool_shape = pool_shape
         self.stride = stride
         self.padding = padding
@@ -377,8 +613,7 @@ class PoolingLayer(Layer):
         X_reshape = R.join_to_list(X_reshape,width)
 
         X = X.reshape(shape=X_reshape)
-
-        X_col = image_to_column(X, self.pool_shape, self.stride, self.padding)
+        X_col = image_to_column(X, self.pool_shape, stride=self.stride, output_shape=self.padding)
 
         # MaxPool or AveragePool specific method
         output = self._pool_forward(X_col)
@@ -444,6 +679,34 @@ class MaxPooling2D(PoolingLayer):
         # accum_grad_col[arg_max, range(accum_grad().size)] = accum_grad()
         return accum_grad_col #R.t(accum_grad_col)
 
+    def save_weights(self):
+        pass
+
+    def fetch_onnx_params(self,input_initializer, output_initializer = None):
+        if output_initializer:
+            maxpool2d_output_node_name = output_initializer
+        else:
+            maxpool2d_output_node_name = self.layer_name + "_output"
+
+        if isinstance(self.stride, int):
+            stride = [self.stride, self.stride]
+        else:
+            stride = np.asarray(self.stride).tolist()
+
+        maxpool2d_node = onnx.helper.make_node(
+            name=self.layer_name,  # Name is optional.
+            op_type="MaxPool",
+            inputs=[
+                input_initializer
+            ],
+            outputs=[maxpool2d_output_node_name],
+            kernel_shape=np.asarray(self.pool_shape).tolist(),
+            strides=stride,
+            # pads=self.padding,
+        )
+
+        return maxpool2d_node, maxpool2d_output_node_name, []
+
 
 def image_to_column(images, filter_shape, stride, output_shape='same'):
     filter_height, filter_width = filter_shape
@@ -479,7 +742,6 @@ def determine_padding(filter_shape, output_shape="same"):
     # Pad so that the output shape is the same as input shape (given that stride=1)
     elif output_shape == "same":
         filter_height, filter_width = filter_shape
-
         # Derived from:
         # output_height = (height + pad_h - filter_height) / stride + 1
         # In this case output_height = height and stride = 1. This gives the
