@@ -1,16 +1,16 @@
 # RavDL - Deep Learning Library
 
-Introducing Raven Protocol's Distributed Deep Learning tool that allows developers to easily build, train and test their neural networks by leveraging the compute power of participating nodes across the globe.
+Introducing Raven Protocol's Distributed Deep Learning tool that allows Requesters to easily build, train and test their neural networks by leveraging the compute power of participating nodes across the globe.
 
 
 ## Working
 RavDL can be thought of as a high level wrapper (written in Python) that defines the mathematical backend for building layers of neural networks by utilizing the fundamental operations from RavOP library to provide essential abstractions for training complex DL architectures in the Ravenverse.  
 
-This framework seemlessly integrates with the Ravenverse where the models get divided into optimized subgraphs, which get assigned to the participating nodes for computation in a secure manner. Once all subgraphs have been computed, the saved model will be returned to the developer.
+This framework seemlessly integrates with the Ravenverse where the models get divided into optimized subgraphs, which get assigned to the participating nodes for computation in a secure manner. Once all subgraphs have been computed, the saved model will be returned to the requester.
 
-In this manner, a developer can securely train complex models without dedicating his or her own system for this heavy and time consuming task.
+In this manner, a requester can securely train complex models without dedicating his or her own system for this heavy and time consuming task.
 
-There is something in it for the contributers too! The nodes that contribute their processing power will be rewarded with tokens proportionate to the capabilities of their systems and duration of participation. More information is available here.
+There is something in it for the providers too! The nodes that contribute their processing power will be rewarded with tokens proportionate to the capabilities of their systems and duration of participation. More information is available here.
 
 ## Installation
 
@@ -52,21 +52,21 @@ Adam(learning_rate=0.001, b1=0.9, b2=0.999)
 
 ## Usage
 
-This section gives a more detailed walkthrough on how a developer can define their ML/DL architectures in Python by using RavDL and RavOP functionalities.
+This section gives a more detailed walkthrough on how a requester can define their ML/DL architectures in Python by using RavDL and RavOP functionalities.
 
 >**Note:** The complete scripts of the functionalities demonstrated in this document are available in the [Ravenverse Repository](https://github.com/ravenprotocol/ravenverse) in the *```ANN_example```* and *```CNN_example```* folders.   
 
 ### Authentication and Graph Definition
 
-The developer must connect to the Ravenverse using a unique token that they can generate by logging in on Raven's Website using their MetaMask wallet credentials.   
+The Requester must connect to the Ravenverse using a unique token that they can generate by logging in on Raven's Website using their MetaMask wallet credentials.   
 
 ```python
 import ravop as R
 R.initialize('<TOKEN>')
 ```
 
-In the Ravenverse, each script executed by a developer is treated as a collection of RavOP Operations called Graph.<br> 
-> **Note:** In the current release, the developer can execute only 1 graph with their unique token. Therefore, to clear any previous/existing graphs, the developer must use ```R.flush()``` method. <br>
+In the Ravenverse, each script executed by a requester is treated as a collection of RavOP Operations called Graph.<br> 
+> **Note:** In the current release, the requester can execute only 1 graph with their unique token. Therefore, to clear any previous/existing graphs, the requester must use ```R.flush()``` method. <br>
 
 The next step involves the creation of a Graph... 
 
@@ -209,3 +209,9 @@ A sample CNN network to be trained on Sklearn's ```load_digits``` dataset is ava
 ![Screenshot 2022-05-25 at 4 54 22 PM](https://user-images.githubusercontent.com/36446402/170251625-fe875e22-082e-48a1-b2ed-0bfc4315071e.png)
 
 <!-- ## How to Contribute -->
+
+## License
+
+<a href="https://github.com/ravenprotocol/ravdl/blob/master/LICENSE"><img src="https://img.shields.io/github/license/ravenprotocol/ravdl"></a>
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details
