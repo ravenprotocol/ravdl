@@ -4,17 +4,22 @@ Introducing Raven Protocol's Distributed Deep Learning tool that allows Requeste
 
 
 ## Working
-RavDL can be thought of as a high level wrapper (written in Python) that defines the mathematical backend for building layers of neural networks by utilizing the fundamental operations from RavOP library to provide essential abstractions for training complex DL architectures in the Ravenverse.  
+RavDL can be thought of as a high level wrapper (written in Python) that defines the mathematical backend for building layers of neural networks by utilizing the fundamental operations from Ravop library to provide essential abstractions for training complex DL architectures in the Ravenverse.  
 
 This framework seemlessly integrates with the Ravenverse where the models get divided into optimized subgraphs, which get assigned to the participating nodes for computation in a secure manner. Once all subgraphs have been computed, the saved model will be returned to the requester.
 
-In this manner, a requester can securely train complex models without dedicating his or her own system for this heavy and time consuming task.
+In this manner, a requester can securely train complex models without dedicating his or her own system for this heavy and time-consuming task.
 
 There is something in it for the providers too! The nodes that contribute their processing power will be rewarded with tokens proportionate to the capabilities of their systems and duration of participation. More information is available here.
 
 ## Installation
 
-Make sure RavOP is installed and working properly. <Link>
+Make sure Ravop is installed and working properly. <Link>
+
+### With PIP
+```bash
+pip install ravdl
+```
 
 ### Clone
 ```bash
@@ -52,7 +57,7 @@ Adam(learning_rate=0.001, b1=0.9, b2=0.999)
 
 ## Usage
 
-This section gives a more detailed walkthrough on how a requester can define their ML/DL architectures in Python by using RavDL and RavOP functionalities.
+This section gives a more detailed walkthrough on how a requester can define their ML/DL architectures in Python by using RavDL and Ravop functionalities.
 
 >**Note:** The complete scripts of the functionalities demonstrated in this document are available in the [Ravenverse Repository](https://github.com/ravenprotocol/ravenverse) in the *```ANN_example```* and *```CNN_example```* folders.   
 
@@ -65,7 +70,7 @@ import ravop as R
 R.initialize('<TOKEN>')
 ```
 
-In the Ravenverse, each script executed by a requester is treated as a collection of RavOP Operations called Graph.<br> 
+In the Ravenverse, each script executed by a requester is treated as a collection of Ravop Operations called Graph.<br> 
 > **Note:** In the current release, the requester can execute only 1 graph with their unique token. Therefore, to clear any previous/existing graphs, the requester must use ```R.flush()``` method. <br>
 
 The next step involves the creation of a Graph... 
@@ -113,7 +118,7 @@ model.summary()
 ```python
 train_err = model.fit(X, y, n_epochs=5, batch_size=25, save_model=True)
 ```
-By default, the batch losses for each epoch are made to persist in the ravenverse and can be retrieved later on as and when the computations of those losses are completed. <br>
+By default, the batch losses for each epoch are made to persist in the Ravenverse and can be retrieved later on as and when the computations of those losses are completed. <br>
 The ```save_model``` parameter can be set to true if the trained model needs to be retrieved later for inference or further training. 
 > **Note:** It is recommended that the model object be saved as a pickle file in order to load the saved weights later on.
 ```python
