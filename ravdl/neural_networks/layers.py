@@ -142,12 +142,12 @@ class Dense(Layer):
 class BatchNormalization(Layer):
     """Batch normalization.
     """
-    def __init__(self, momentum=0.99):
+    def __init__(self, momentum=0.99, epsilon=1e-2):
         self.momentum = R.t(momentum)
         self.float_momentum = momentum
         self.trainable = True
-        self.eps = R.t(0.01)
-        self.float_eps = 0.01
+        self.eps = R.t(epsilon)
+        self.float_eps = epsilon
         self.running_mean = None
         self.running_var = None
 
