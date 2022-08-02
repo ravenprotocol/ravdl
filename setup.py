@@ -20,7 +20,7 @@ setup(
         "numpy==1.21.5",
         "terminaltables==3.1.10",
         "onnx==1.12.0",
-        "ravop"
+        "ravop",
         "python-dotenv"
     ]
 )
