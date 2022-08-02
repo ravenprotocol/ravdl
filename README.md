@@ -167,7 +167,7 @@ print("Test prediction: ", y_test_pred)
 ```
 > **Note:** The Ops that have been fetched are of type *int*, *float* or *list*.
 
-### Loading the Model in Onnx
+### Saving the Model from RavDL to Onnx
 If the ```save_model``` parameter has been set to *True* in the ```model.fit``` function, the model can be loaded as an Onnx model after Ravop has been initialized with the token.<br>
 The persisting weights and biases of the trained model will be loaded onto the Onnx model.
 
@@ -205,6 +205,21 @@ dummy_input = np.random.random(
 prediction = sess.run(None, {input_name: dummy_input})[0]
 print(prediction)
 ```
+
+### Loading an Onnx Model to RavDL
+RavDL now supports loading a pre-existing Onnx model into RavDL (for supported layers). 
+
+```python
+from ravdl.neural_networks.load_onnx_model import load_onnx
+
+model = load_onnx(model_file_path="test_cnn.onnx", optimizer=Adam(), loss=CrossEntropy)
+model.summary()
+```
+
+In the above code, the ```model``` obtained from the <i>"test_cnn.onnx"</i> file is an ```ravdl.neural_networks.NeuralNetwork``` instance that can further be trained or used for making predictions in the Ravenverse.
+
+> **Note:** As of now, Onnx files exported from ```.pt``` / ```.pth``` **(Pytorch)** or from **RavDL** are supported.
+
 
 ## Examples
 
