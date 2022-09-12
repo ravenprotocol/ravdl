@@ -3,6 +3,19 @@ import onnx
 from terminaltables import AsciiTable
 from .utils.data_manipulation import batch_iterator
 
+loss_op_mapping = {
+    'SquareLoss': {
+        'loss': R.square_loss,
+        # 'accuracy': R.square_loss_accuracy,
+        'gradient': R.square_loss_gradient
+    },
+    'CrossEntropy': {
+        'loss': R.cross_entropy_loss,
+        'accuracy': R.cross_entropy_accuracy,
+        'gradient': R.cross_entropy_gradient
+    }
+}
+
 class NeuralNetwork():
     """Neural Network. Deep Learning base model.
 
@@ -20,7 +33,7 @@ class NeuralNetwork():
         self.optimizer = optimizer
         self.layers = []
         self.errors = {"training": [], "validation": []}
-        self.loss_function = loss()
+        self.loss_function = loss_op_mapping[loss]#loss()
 
         self.input = None
         self.output = None
@@ -62,19 +75,19 @@ class NeuralNetwork():
     def test_on_batch(self, X, y):
         """ Evaluates the model over a single batch of samples """
         y_pred = self._forward_pass(X, training=False)
-        loss = R.mean(R.cross_entropy_loss(y, y_pred))
-        acc = R.cross_entropy_accuracy(y, y_pred)
+        loss = R.mean(self.loss_function['loss'](y, y_pred)) #R.cross_entropy_loss(y, y_pred))
+        acc = self.loss_function['accuracy'](y, y_pred)  #R.cross_entropy_accuracy(y, y_pred)
 
         return loss, acc
 
     def train_on_batch(self, X, y):
         """ Single gradient update over one batch of samples """
         y_pred = self._forward_pass(X)
-        loss = R.mean(R.cross_entropy_loss(y, y_pred))
+        loss = R.mean(self.loss_function['loss'](y, y_pred))   #R.cross_entropy_loss(y, y_pred))
         # print('   Loss: ', loss())
         # acc = self.loss_function.acc(y, y_pred)
         # Calculate the gradient of the loss function wrt y_pred
-        loss_grad = R.cross_entropy_gradient(y, y_pred)
+        loss_grad = self.loss_function['gradient'](y, y_pred)  #R.cross_entropy_gradient(y, y_pred)
         # print('   Loss Gradient: ', loss_grad())
         # Backpropagate. Update weights
         self._backward_pass(loss_grad=loss_grad)
