@@ -85,20 +85,32 @@ algo = R.Graph(name='cnn', algorithm='convolutional_neural_network', approach='d
 
 ### Setting Model Parameters
 
-```python
-from ravdl.neural_networks import NeuralNetwork
-from ravdl.neural_networks.optimizers import RMSprop
-from ravdl.neural_networks.loss_functions import SquareLoss
+RavDL currently has 2 versions: v1 and v2. The more recent v2 version is more efficient and faster than v1. However, v1 is more stable and has more features. Therefore, the requester can choose which version to use by adjusting the import statements in their scripts. 
 
-optimizer = RMSprop()
-model = NeuralNetwork(optimizer=optimizer,loss=SquareLoss)
+#### Version 1
+
+```python
+from ravdl.v1 import NeuralNetwork
+from ravdl.v1.optimizers import RMSprop, Adam
+from ravdl.v1.loss_functions import SquareLoss
+from ravdl.v1.layers import Activation, Dense, BatchNormalization, Dropout, Conv2D, Flatten, MaxPooling2D
+ 
+model = NeuralNetwork(optimizer=RMSprop(),loss=SquareLoss)
+```
+
+#### Version 2
+
+```python
+from ravdl.v2 import NeuralNetwork
+from ravdl.v2.optimizers import RMSprop, Adam
+from ravdl.v2.layers import Activation, Dense, BatchNormalization, Dropout, Conv2D, Flatten, MaxPooling2D
+
+model = NeuralNetwork(optimizer=RMSprop(),loss='SquareLoss')
 ```
 
 ### Adding Layers to Model
 
 ```python
-from ravdl.neural_networks.layers import Dense, Dropout, BatchNormalization, Activation
-
 model.add(Dense(n_hidden, input_shape=(n_features,)))
 model.add(BatchNormalization())
 model.add(Dense(30))
@@ -119,7 +131,8 @@ model.summary()
 train_err = model.fit(X, y, n_epochs=5, batch_size=25, save_model=True)
 ```
 By default, the batch losses for each epoch are made to persist in the Ravenverse and can be retrieved later on as and when the computations of those losses are completed. <br>
-The ```save_model``` parameter can be set to true if the trained model needs to be retrieved later for inference or further training. 
+In ```ravdl.v1```, the ```save_model``` parameter can be set to true if the trained model needs to be retrieved later for inference or further training. <br> 
+In ```ravdl.v2```, the ```persist_weights``` parameter can be set to true to make the weights persist in the Ravenverse for future use.
 > **Note:** It is recommended that the model object be saved as a pickle file in order to load the saved weights later on.
 ```python
 import pickle as pkl
@@ -169,6 +182,9 @@ print("Test prediction: ", y_test_pred)
 
 ### Saving the Model from RavDL to Onnx
 If the ```save_model``` parameter has been set to *True* in the ```model.fit``` function, the model can be loaded as an Onnx model after Ravop has been initialized with the token.<br>
+
+> **Note:** As of now, only ```ravdl.v1``` has support for exporting/importing models to and from the ONNX format.
+
 The persisting weights and biases of the trained model will be loaded onto the Onnx model.
 
 ```python
@@ -180,7 +196,7 @@ test_model.get_onnx_model("test_ann")
 ```
 The ```get_onnx_model``` function takes the name of the onnx file, in which the model must be saved, as parameter. In this case it will be saved as *```"test_ann.onnx"```*.
 
-> **Note:** As mentioned above, a ```ravdl.neural_networks.NeuralNetwork``` instance with the same architecture as the saved model is required for loading the model. Hence it is recommended to save the model object as a pickle file.
+> **Note:** As mentioned above, a ```ravdl.v1.NeuralNetwork``` instance with the same architecture as the saved model is required for loading the model. Hence it is recommended to save the model object as a pickle file.
 
 The script executed below, to load the Onnx model, is available [here](https://github.com/ravenprotocol/ravenverse/blob/master/ANN_example/ANN_get_onnx.py).
 
