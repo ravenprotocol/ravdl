@@ -359,3 +359,6 @@ class MaxPooling2D(Layer):
         assert out_height % 1 == 0
         assert out_width % 1 == 0
         return channels, int(out_height), int(out_width)
+
+    def persist_weights(self):
+        pass
