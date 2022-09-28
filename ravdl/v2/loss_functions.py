@@ -1,6 +1,6 @@
 from __future__ import division
 import ravop as R
-from .utils.data_operations import accuracy_score
+from ..utils.data_operations import accuracy_score
 
 class Loss(object):
     def loss(self, y_true, y_pred):
