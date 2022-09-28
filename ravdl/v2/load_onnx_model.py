@@ -65,9 +65,15 @@ def load_onnx(loss=None, optimizer=None, model_file_path=None):
             else:
                 model.add(Dense(W.shape[-1]))
             
-            model.layers[-1].W = R.t(W)
-            model.layers[-1].w0 = R.t(w0)
-        
+            data_output = {
+                'W': W.tolist(),
+                'w0': w0.tolist(),
+                'accum_grad' : None,
+                'W_opt_state_dict': None,
+                'w0_opt_state_dict': None
+            }
+            model.layers[-1].backward_pass = str(data_output)
+             
         # Activation Layer Relu
         elif op_type == 'Relu':
             model.add(Activation('relu'))
@@ -97,7 +103,8 @@ def load_onnx(loss=None, optimizer=None, model_file_path=None):
             else:
                 model.add(Dropout(ratio))
 
-            model.layers[-1].p = R.t(ratio)
+            model.layers[-1].p = ratio
+
 
         # Batchnorm Layer
         elif op_type == 'BatchNormalization':
@@ -145,11 +152,17 @@ def load_onnx(loss=None, optimizer=None, model_file_path=None):
                 else:
                     model.add(BatchNormalization(epsilon=epsilon, momentum=momentum))
                 
+                data_output = {
+                    'gamma': initializer_matrices[0].tolist(),
+                    'beta': initializer_matrices[1].tolist(),
+                    'running_mean': initializer_matrices[2].tolist(),
+                    'running_var': initializer_matrices[3].tolist(),
+                    'accum_grad': None,
+                    'gamma_opt_state_dict': None,
+                    'beta_opt_state_dict': None
+                }
 
-                model.layers[-1].gamma = R.t(initializer_matrices[0])
-                model.layers[-1].beta = R.t(initializer_matrices[1])
-                model.layers[-1].running_mean = R.t(initializer_matrices[2])
-                model.layers[-1].running_var = R.t(initializer_matrices[3])
+                model.layers[-1].backward_pass = str(data_output)
             
         # Flatten Layer
         elif op_type == 'Flatten':
@@ -187,8 +200,16 @@ def load_onnx(loss=None, optimizer=None, model_file_path=None):
             else:
                 model.add(Conv2D(W.shape[0], filter_shape=tuple(kernel_shape)))
 
-            model.layers[-1].W = R.t(W)
-            model.layers[-1].w0 = R.t(w0)
+
+            data_output = {
+                'W': W.tolist(),
+                'w0': w0.tolist(),
+                'accum_grad': None,
+                'W_opt_state_dict': None,
+                'w0_opt_state_dict': None
+            }
+
+            model.layers[-1].backward_pass = str(data_output)
 
         # MaxPooling Layer
         elif op_type == 'MaxPool':        
