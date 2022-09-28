@@ -1,7 +1,9 @@
 import ravop as R
 import numpy as np
 import math
-from .utils.data_operations import determine_padding
+import onnx
+from ..utils.data_operations import determine_padding
+from ..utils import create_initializer_tensor
 
 class Layer(object):
 
@@ -28,7 +30,6 @@ class Layer(object):
     def output_shape(self):
         """ The shape of the output produced by forward_pass """
         raise NotImplementedError()
-
 
 class Dense(Layer):
     def __init__(self, n_units, input_shape=None):
@@ -66,8 +67,38 @@ class Dense(Layer):
         return (self.n_units, )
 
     def persist_weights(self):
-        self.forward_pass.persist_op("{}_forward_pass".format(self.layer_name))
+        # self.forward_pass.persist_op("{}_forward_pass".format(self.layer_name))
         self.backward_pass.persist_op("{}_backward_pass".format(self.layer_name))
+
+    def fetch_onnx_params(self,input_initializer, output_initializer = None):
+        backward_pass_data = R.fetch_persisting_op(op_name="{}_backward_pass".format(self.layer_name))
+
+        W_fetched = backward_pass_data["W"]
+        w0_fetched = backward_pass_data["w0"]
+
+        if isinstance(W_fetched, list):
+            W_fetched = np.array(W_fetched)
+        if isinstance(w0_fetched, list):
+            w0_fetched = np.array(w0_fetched)
+
+        dense_W_initializer_name = self.layer_name + "_W"
+        W_initializer_tensor = create_initializer_tensor(name=dense_W_initializer_name, tensor_array= W_fetched, data_type=onnx.TensorProto.FLOAT)
+        dense_w0_initializer_name = self.layer_name + "_w0"
+        w0_initializer_tensor = create_initializer_tensor(name=dense_w0_initializer_name, tensor_array= w0_fetched, data_type=onnx.TensorProto.FLOAT)
+
+        if output_initializer:
+            dense_output_node_name = output_initializer
+        else:
+            dense_output_node_name = self.layer_name + "_output"
+
+        dense_node = onnx.helper.make_node(
+            name=self.layer_name,
+            op_type="Gemm",
+            inputs=[input_initializer, dense_W_initializer_name, dense_w0_initializer_name],
+            outputs=[dense_output_node_name]
+        )
+
+        return dense_node, dense_output_node_name, [W_initializer_tensor, w0_initializer_tensor]
 
 class BatchNormalization(Layer):
     """Batch normalization.
@@ -142,8 +173,54 @@ class BatchNormalization(Layer):
         return self.input_shape
 
     def persist_weights(self):
-        self.forward_pass.persist_op("{}_forward_pass".format(self.layer_name))
+        # self.forward_pass.persist_op("{}_forward_pass".format(self.layer_name))
         self.backward_pass.persist_op("{}_backward_pass".format(self.layer_name))
+
+    def fetch_onnx_params(self,input_initializer, output_initializer = None):
+        backward_pass_data = R.fetch_persisting_op(op_name="{}_backward_pass".format(self.layer_name))
+
+        gamma_fetched = backward_pass_data["gamma"]
+        beta_fetched = backward_pass_data["beta"]
+        running_mean_fetched = backward_pass_data["running_mean"]
+        running_var_fetched = backward_pass_data["running_var"]
+
+        if isinstance(gamma_fetched, list):
+            gamma_fetched = np.array(gamma_fetched)
+        if isinstance(beta_fetched, list):
+            beta_fetched = np.array(beta_fetched)
+        if isinstance(running_mean_fetched, list):
+            running_mean_fetched = np.array(running_mean_fetched)
+        if isinstance(running_var_fetched, list):
+            running_var_fetched = np.array(running_var_fetched)
+
+        bn_gamma_initializer_name = self.layer_name + "_gamma"
+        gamma_initializer_tensor = create_initializer_tensor(name=bn_gamma_initializer_name, tensor_array= gamma_fetched.reshape((-1)), data_type=onnx.TensorProto.FLOAT)
+        bn_beta_initializer_name = self.layer_name + "_beta"
+        beta_initializer_tensor = create_initializer_tensor(name=bn_beta_initializer_name, tensor_array= beta_fetched.reshape((-1)), data_type=onnx.TensorProto.FLOAT)
+        bn_mean_initializer_name = self.layer_name + "_mean"
+        mean_initializer_tensor = create_initializer_tensor(name=bn_mean_initializer_name, tensor_array= running_mean_fetched.reshape((-1)), data_type=onnx.TensorProto.FLOAT)
+        bn_var_initializer_name = self.layer_name + "_var"
+        var_initializer_tensor = create_initializer_tensor(name=bn_var_initializer_name, tensor_array= running_var_fetched.reshape((-1)), data_type=onnx.TensorProto.FLOAT)
+        
+        if output_initializer:
+            bn_output_node_name = output_initializer
+        else:
+            bn_output_node_name = self.layer_name + "_output"
+
+        bn_node = onnx.helper.make_node(
+            name=self.layer_name,  # Name is optional.
+            op_type="BatchNormalization",
+            inputs=[
+                input_initializer, bn_gamma_initializer_name,
+                bn_beta_initializer_name, bn_mean_initializer_name,
+                bn_var_initializer_name
+            ],
+            momentum=self.float_momentum,
+            epsilon=self.float_eps,
+            outputs=[bn_output_node_name],
+        )
+
+        return bn_node, bn_output_node_name, [gamma_initializer_tensor, beta_initializer_tensor, mean_initializer_tensor, var_initializer_tensor]
 
 class Dropout(Layer):
     """A layer that randomly sets a fraction p of the output units of the previous layer
@@ -184,9 +261,35 @@ class Dropout(Layer):
     def persist_weights(self):
         pass
 
-    def save_weights(self):
-        self.p.persist_op(self.get_layer_name() + "_p")
+    def fetch_onnx_params(self,input_initializer, output_initializer = None):
+        p_fetched = self.p
 
+        if not isinstance(p_fetched, np.ndarray):
+            p_fetched = np.array(p_fetched)
+
+        dropout_p_initializer_name = self.layer_name + "_p"
+        p_initializer_tensor = create_initializer_tensor(name=dropout_p_initializer_name, tensor_array= p_fetched, data_type=onnx.TensorProto.FLOAT)
+    
+        if output_initializer:
+            dropout_output_node_name = output_initializer
+        else:
+            dropout_output_node_name = self.layer_name + "_output"
+
+        dropout_node = onnx.helper.make_node(
+            name=self.layer_name,
+            op_type="Dropout",
+            inputs=[input_initializer, dropout_p_initializer_name],
+            outputs=[dropout_output_node_name]
+        )
+
+        return dropout_node, dropout_output_node_name, [p_initializer_tensor]
+
+onnx_activation_functions = {
+    'relu': 'Relu',
+    'sigmoid': 'Sigmoid',
+    'softmax': 'Softmax',
+    'tanh': 'Tanh'
+}
 
 class Activation(Layer):
     """A layer that applies an activation operation to the input.
@@ -221,6 +324,23 @@ class Activation(Layer):
 
     def persist_weights(self):
         pass
+
+    def fetch_onnx_params(self,input_initializer, output_initializer = None):
+        if output_initializer:
+            activation_output_node_name = output_initializer
+        else:
+            activation_output_node_name = self.layer_name + "_output"
+
+        op_type = onnx_activation_functions[self.activation_name]
+
+        activation_node = onnx.helper.make_node(
+            name=self.layer_name,
+            op_type=op_type,
+            inputs=[input_initializer],
+            outputs=[activation_output_node_name]
+        )
+
+        return activation_node, activation_output_node_name, []
 
 class Conv2D(Layer):
 
@@ -289,8 +409,54 @@ class Conv2D(Layer):
         return self.n_filters, int(output_height), int(output_width)
 
     def persist_weights(self):
-        self.forward_pass.persist_op("{}_forward_pass".format(self.layer_name))
+        # self.forward_pass.persist_op("{}_forward_pass".format(self.layer_name))
         self.backward_pass.persist_op("{}_backward_pass".format(self.layer_name))
+
+    def fetch_onnx_params(self,input_initializer, output_initializer = None):
+        backward_pass_data = R.fetch_persisting_op(op_name="{}_backward_pass".format(self.layer_name))
+
+        W_fetched = backward_pass_data["W"]
+        w0_fetched = backward_pass_data["w0"]
+
+        if isinstance(W_fetched, list):
+            W_fetched = np.array(W_fetched)
+        if isinstance(w0_fetched, list):
+            w0_fetched = np.array(w0_fetched)
+
+        conv_W_initializer_name = self.layer_name + "_W"
+        W_initializer_tensor = create_initializer_tensor(name=conv_W_initializer_name, tensor_array= W_fetched, data_type=onnx.TensorProto.FLOAT)
+        conv_w0_initializer_name = self.layer_name + "_w0"
+        w0_initializer_tensor = create_initializer_tensor(name=conv_w0_initializer_name, tensor_array= w0_fetched, data_type=onnx.TensorProto.FLOAT)
+
+        if output_initializer:
+            conv_output_node_name = output_initializer
+        else:
+            conv_output_node_name = self.layer_name + "_output"
+
+        if self.padding == 'same':
+            pad = 'SAME_UPPER'
+        else:
+            pad = 'VALID'
+
+        if isinstance(self.stride, int):
+            stride = [self.stride, self.stride]
+        else:
+            stride = np.asarray(self.stride).tolist()
+
+        conv_node = onnx.helper.make_node(
+            name=self.layer_name,
+            op_type="Conv",
+            inputs=[
+                input_initializer, conv_W_initializer_name,
+                conv_w0_initializer_name
+            ],
+            outputs=[conv_output_node_name],
+            kernel_shape=np.asarray(self.filter_shape).tolist(),
+            pads=(1,1,1,1),
+            strides=stride
+        )
+
+        return conv_node, conv_output_node_name, [W_initializer_tensor, w0_initializer_tensor]
 
 class Flatten(Layer):
     """ Turns a multidimensional matrix into two-dimensional """
@@ -315,6 +481,23 @@ class Flatten(Layer):
 
     def persist_weights(self):
         pass
+
+    def fetch_onnx_params(self,input_initializer, output_initializer = None):
+        if output_initializer:
+            flatten_output_node_name = output_initializer
+        else:
+            flatten_output_node_name = self.layer_name + "_output"
+
+        flatten_node = onnx.helper.make_node(
+            name=self.layer_name,  # Name is optional.
+            op_type="Flatten",
+            inputs=[
+                input_initializer
+            ],
+            outputs=[flatten_output_node_name],
+        )
+
+        return flatten_node, flatten_output_node_name, []
 
 class MaxPooling2D(Layer):
     """A parent class of MaxPooling2D and AveragePooling2D
@@ -362,3 +545,28 @@ class MaxPooling2D(Layer):
 
     def persist_weights(self):
         pass
+
+    def fetch_onnx_params(self,input_initializer, output_initializer = None):
+        if output_initializer:
+            maxpool2d_output_node_name = output_initializer
+        else:
+            maxpool2d_output_node_name = self.layer_name + "_output"
+
+        if isinstance(self.stride, int):
+            stride = [self.stride, self.stride]
+        else:
+            stride = np.asarray(self.stride).tolist()
+
+        maxpool2d_node = onnx.helper.make_node(
+            name=self.layer_name,  # Name is optional.
+            op_type="MaxPool",
+            inputs=[
+                input_initializer
+            ],
+            outputs=[maxpool2d_output_node_name],
+            kernel_shape=np.asarray(self.pool_shape).tolist(),
+            strides=stride,
+            # pads=self.padding,
+        )
+
+        return maxpool2d_node, maxpool2d_output_node_name, []

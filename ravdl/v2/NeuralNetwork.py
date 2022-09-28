@@ -1,7 +1,7 @@
 import ravop as R
 import onnx
 from terminaltables import AsciiTable
-from .utils.data_manipulation import batch_iterator
+from ..utils.data_manipulation import batch_iterator
 
 loss_op_mapping = {
     'SquareLoss': {
@@ -94,7 +94,7 @@ class NeuralNetwork():
 
         return loss #, acc
 
-    def fit(self, X, y, n_epochs, batch_size, save_model = False, persist_weights=False):
+    def fit(self, X, y, n_epochs, batch_size, save_model = False):
         """ Trains the model for a fixed number of epochs """
         for epoch in range(1, n_epochs + 1):
             print('\nEpoch: ', epoch)
@@ -109,11 +109,8 @@ class NeuralNetwork():
             #     val_loss, _ = self.test_on_batch(self.val_set["X"], self.val_set["y"])
             #     val_loss.persist_op(name="val_loss_epoch_{}".format(epoch))
         
-        if persist_weights:
-            self.persist_model()
-
-        # if save_model:
-        #     self.save_model()
+        if save_model:
+            self.save_model()
             
     def _forward_pass(self, X, training=True):
         """ Calculate the output of the NN """
@@ -158,16 +155,11 @@ class NeuralNetwork():
         """ Use the trained model to predict labels of X """
         X = R.t(X)
         return self._forward_pass(X, training=False)
-
-    def persist_model(self):
-        """ Save the model's weights to a file """
-        for layer in self.layers:
-            layer.persist_weights()
     
     def save_model(self):
         """ Save the model's weights to a file """
         for layer in self.layers:
-            layer.save_weights()
+            layer.persist_weights()
 
     def get_onnx_model(self, model_name):
         """ Get an ONNX model of the network """
