@@ -570,3 +570,4 @@ class MaxPooling2D(Layer):
         )
 
         return maxpool2d_node, maxpool2d_output_node_name, []
+
