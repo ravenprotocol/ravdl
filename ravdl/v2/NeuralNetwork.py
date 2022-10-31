@@ -112,16 +112,29 @@ class NeuralNetwork():
         if save_model:
             self.save_model()
             
-    def _forward_pass(self, X, training=True):
+    def _forward_pass(self, X, training=True,return_all_layer_output=False):
         """ Calculate the output of the NN """
         layer_output = X
+        all_layer_out={}
         for layer in self.layers:
             if layer == self.layers[0]:
                 layer_output = layer._forward_pass(layer_output, input_layer="True", training = training)
+                if isinstance(layer_output, dict):
+                    layer_output = layer_output['output']
+                all_layer_out[layer.layer_name]=layer_output
             else:
                 layer_output = layer._forward_pass(layer_output, training = training)
+                if isinstance(layer_output, dict):
+                    layer_output = layer_output['output']
+                all_layer_out[layer.layer_name]=layer_output
+
+        if return_all_layer_output is True:
+            return all_layer_out
 
         return layer_output
+
+
+        
 
     def _backward_pass(self, loss_grad):
         """ Propagate the gradient 'backwards' and update the weights in each layer """
