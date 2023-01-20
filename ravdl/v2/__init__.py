@@ -1,1 +1,1 @@
-from .NeuralNetwork import NeuralNetwork
+from .NeuralNetwork import NeuralNetwork, Functional
