@@ -1,36 +1,41 @@
 import ravop as R
 
 class RMSprop():
-    def __init__(self, learning_rate=0.01, rho=0.9):
-        self.learning_rate = learning_rate
-        self.Eg = None # Running average of the square gradients at w
-        self.eps = 1e-8
-        self.rho = rho
+    def __init__(self, lr=0.01, alpha=0.99, eps=1e-08, weight_decay=0, momentum=0, centered=False):
+        self.lr = lr
+        self.alpha = alpha
+        self.eps = eps
+        self.weight_decay = weight_decay
+        self.momentum = momentum
+        self.centered = centered
+
 
     def data_dict(self):
         return str({
-            "name": "RMSprop",
-            "learning_rate" : self.learning_rate,
-            # "Eg": self.Eg,
-            # "eps": self.eps,
-            "rho": self.rho
+            "name": "rmsprop",
+            "lr" : self.lr,
+            "alpha":self.alpha,
+            "eps": self.eps,
+            "weight_decay": self.weight_decay,
+            "momentum": self.momentum,
+            "centered": self.centered
         })
 
 class Adam():
-    def __init__(self, learning_rate=0.001, b1=0.9, b2=0.999):
-        self.learning_rate = learning_rate
-        self.eps = 1e-8
-        self.m = None
-        self.v = None
-        # Decay rates
-        self.b1 = b1
-        self.b2 = b2
+    def __init__(self, lr=0.001, betas=(0.9,0.999), eps=1e-08, weight_decay=0, amsgrad=False):
+        self.lr = lr
+        self.betas = betas
+        self.eps = eps
+        self.weight_decay = weight_decay
+        self.amsgrad = amsgrad
+
 
     def data_dict(self):
         return str({
-            "name": "Adam",
-            "learning_rate" : self.learning_rate,
-            "b1":self.b1,
-            "b2": self.b2
+            "name": "adam",
+            "lr" : self.lr,
+            "betas":self.betas,
+            "eps": self.eps,
+            "weight_decay": self.weight_decay,
+            "amsgrad": self.amsgrad
         })
-
