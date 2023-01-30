@@ -1,6 +1,7 @@
 import ravop as R
 import numpy as np
 import math
+from .utils.data_operations import determine_padding
 
 
 class CustomLayer():
@@ -146,21 +147,21 @@ class Dense(Layer):
             if self.backward_pass is None:
                 self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [X]}
         self.layer_input = X
-        if self.backward_pass is None:
+        if self.initial_W is not None or self.initial_w0 is not None:
             self.forward_pass = R.forward_pass_dense(
                                 X, n_units=self.n_units,
-                                data = self.backward_pass, input_layer = input_layer,
+                                input_layer = input_layer,
                                 optimizer_dict = self.optimizer.data_dict(),
                                 initial_W = self.initial_W,
                                 initial_w0 = self.initial_w0, 
-                                previous_forward_pass = self.forward_pass
                                 )    
         else:
             self.forward_pass = R.forward_pass_dense(
-                                X, n_units=self.n_units, input_shape = self.input_shape, 
-                                data = self.backward_pass, input_layer = input_layer,
+                                X, n_units=self.n_units,
+                                input_layer = input_layer,
+                                optimizer_dict = self.optimizer.data_dict(),
                                 previous_forward_pass = self.forward_pass
-                                )
+                                ) 
         return {'output':self.forward_pass, 'name':self.layer_name}
 
     def output_shape(self):
@@ -217,29 +218,28 @@ class BatchNormalization1D(Layer):
         else:
             if self.backward_pass is None:
                 self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [X]}
-        if self.backward_pass is None:
+        if self.initial_gamma is not None or self.initial_beta is not None or self.initial_running_mean is not None or self.initial_running_var is not None:
             self.forward_pass = R.forward_pass_batchnorm1d(
                                 X, 
                                 momentum = self.momentum, eps = self.eps,
                                 affine=self.affine,
                                 training=training,
                                 optimizer_dict = self.optimizer.data_dict(),
-                                data = self.backward_pass,
                                 initial_gamma = self.initial_gamma,
                                 initial_beta = self.initial_beta,
                                 initial_running_mean = self.initial_running_mean,
                                 initial_running_var = self.initial_running_var,
-                                previous_forward_pass = self.forward_pass
-                                )    
+                                )
         else:
             self.forward_pass = R.forward_pass_batchnorm1d(
-                                X,
+                                X, 
                                 momentum = self.momentum, eps = self.eps,
                                 affine=self.affine,
-                                training=training, 
-                                data = self.backward_pass,
+                                training=training,
+                                optimizer_dict = self.optimizer.data_dict(),
                                 previous_forward_pass = self.forward_pass
-                                )
+                                )       
+        
         return {'output':self.forward_pass, 'name':self.layer_name}
 
     def output_shape(self):
@@ -297,7 +297,7 @@ class BatchNormalization2D(Layer):
         else:
             if self.backward_pass is None:
                 self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [X]}
-        if self.backward_pass is None:
+        if self.initial_gamma is not None or self.initial_beta is not None or self.initial_running_mean is not None or self.initial_running_var is not None:
             self.forward_pass = R.forward_pass_batchnorm2d(
                                 X,
                                 num_features = self.num_features, 
@@ -305,12 +305,10 @@ class BatchNormalization2D(Layer):
                                 affine=self.affine,
                                 training=training,
                                 optimizer_dict = self.optimizer.data_dict(),
-                                data = self.backward_pass,
                                 initial_gamma = self.initial_gamma,
                                 initial_beta = self.initial_beta,
                                 initial_running_mean = self.initial_running_mean,
                                 initial_running_var = self.initial_running_var,
-                                previous_forward_pass = self.forward_pass
                                 )    
         else:
             self.forward_pass = R.forward_pass_batchnorm2d(
@@ -319,7 +317,7 @@ class BatchNormalization2D(Layer):
                                 momentum = self.momentum, eps = self.eps,
                                 affine=self.affine,
                                 training=training, 
-                                data = self.backward_pass,
+                                optimizer_dict = self.optimizer.data_dict(),
                                 previous_forward_pass = self.forward_pass
                                 )
         return {'output':self.forward_pass, 'name':self.layer_name}
@@ -375,27 +373,25 @@ class LayerNormalization(Layer):
         else:
             if self.backward_pass is None:
                 self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [X]}
-        if self.backward_pass is None:
+        if self.initial_W is not None or self.initial_w0 is not None:
             self.forward_pass = R.forward_pass_layernorm(
                                 X, normalized_shape=self.normalized_shape,
                                 input_shape=self.input_shape,
                                 eps = self.eps,
                                 training=training, 
-                                data = self.backward_pass,
                                 optimizer_dict = self.optimizer.data_dict(),
                                 initial_W = self.initial_W,
                                 initial_w0 = self.initial_w0,
-                                previous_forward_pass = self.forward_pass
                                 )
         else:
             self.forward_pass = R.forward_pass_layernorm(
-                                X, normalized_shape=self.normalized_shape, 
+                                X, normalized_shape=self.normalized_shape,
                                 input_shape=self.input_shape,
                                 eps = self.eps,
                                 training=training, 
-                                data = self.backward_pass,
+                                optimizer_dict = self.optimizer.data_dict(),
                                 previous_forward_pass = self.forward_pass
-                            )
+                                )
         return {'output':self.forward_pass, 'name':self.layer_name}
 
     def output_shape(self):
@@ -439,7 +435,7 @@ class Dropout(Layer):
         else:
             if self.backward_pass is None:
                 self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [X]}
-        self.forward_pass = R.forward_pass_dropout(X, p = self.p, training=training, previous_forward_pass = self.forward_pass)
+        self.forward_pass = R.forward_pass_dropout(X, p = self.p, training=training)
         return {'output':self.forward_pass, 'name':self.layer_name}
 
     def output_shape(self):
@@ -501,7 +497,7 @@ class Conv2D(Layer):
     padding: string
         The padding that will be applied to the input.
     """
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', initial_W=None, initial_w0=None):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', initial_W=None, initial_w0=None, input_shape=None):
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.kernel_size = kernel_size
@@ -516,10 +512,20 @@ class Conv2D(Layer):
         self.trainable = True
         self.forward_pass = None
         self.backward_pass = None
+        self.input_shape = input_shape
         self.graph_params = {}
 
     def initialize(self, optimizer):
         self.optimizer = optimizer
+        if self.input_shape is not None:
+            filter_height, filter_width = self.kernel_size
+            channels = self.input_shape[0]
+            limit = 1 / math.sqrt(np.prod(self.kernel_size))
+            self.W  = np.random.uniform(-limit, limit, size=(self.out_channels, channels, filter_height, filter_width))
+            self.w0 = np.zeros((self.out_channels, 1))
+
+    def parameters(self):
+        return  np.prod(self.W.shape) + np.prod(self.w0.shape)
 
     def _forward_pass(self, X, input_layer="False", training=True):
         if training:
@@ -534,7 +540,7 @@ class Conv2D(Layer):
         else:
             if self.backward_pass is None:
                 self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [X]}
-        if self.backward_pass is None:
+        if self.initial_W is not None or self.initial_w0 is not None:
             self.forward_pass = R.forward_pass_conv2d(
                                 X, 
                                 in_channels = self.in_channels,
@@ -548,14 +554,12 @@ class Conv2D(Layer):
                                 padding_mode = self.padding_mode,
                                 training=training,
                                 optimizer_dict = self.optimizer.data_dict(),
-                                data = self.backward_pass,
                                 initial_W = self.initial_W,
                                 initial_w0 = self.initial_w0,
-                                previous_forward_pass = self.forward_pass
                                 )    
         else:
             self.forward_pass = R.forward_pass_conv2d(
-                                X,
+                                X, 
                                 in_channels = self.in_channels,
                                 out_channels = self.out_channels,
                                 kernel_size = self.kernel_size,
@@ -565,12 +569,18 @@ class Conv2D(Layer):
                                 groups = self.groups,
                                 bias = self.bias,
                                 padding_mode = self.padding_mode,
-                                training=training, 
-                                data = self.backward_pass,
+                                training=training,
+                                optimizer_dict = self.optimizer.data_dict(),
                                 previous_forward_pass = self.forward_pass
-                                )
+                                ) 
         return {'output':self.forward_pass, 'name':self.layer_name}
 
+    def output_shape(self):
+        channels, height, width = self.input_shape
+        pad_h, pad_w = determine_padding(self.kernel_size, output_shape=self.padding)
+        output_height = (height + np.sum(pad_h) - self.kernel_size[0]) / self.stride + 1
+        output_width = (width + np.sum(pad_w) - self.kernel_size[1]) / self.stride + 1
+        return self.out_channels, int(output_height), int(output_width)
 
     
 class Flatten(Layer):
@@ -594,6 +604,8 @@ class Flatten(Layer):
         self.forward_pass = R.forward_pass_flatten(X, start_dim = self.start_dim, end_dim = self.end_dim)
         return {'output':self.forward_pass, 'name':self.layer_name}
     
+    def output_shape(self):
+        return (np.prod(self.input_shape),)
 
 class MaxPooling2D(Layer):
     def __init__(self, kernel_size, stride=None, padding=0, dilation=1, return_indices=False, ceil_mode=False):
@@ -611,6 +623,7 @@ class MaxPooling2D(Layer):
     def initialize(self, optimizer):
         self.optimizer = optimizer
 
+    
     def _forward_pass(self, X, input_layer="False", training=True):
         if training:
             training="True"
@@ -624,34 +637,29 @@ class MaxPooling2D(Layer):
         else:
             if self.backward_pass is None:
                 self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [X]}
-        if self.backward_pass is None:
-            self.forward_pass = R.forward_pass_maxpool2d(
-                                X, 
-                                kernel_size = self.kernel_size,
-                                stride = self.stride,
-                                padding = self.padding,
-                                dilation = self.dilation,
-                                return_indices = self.return_indices,
-                                ceil_mode = self.ceil_mode,
-                                training=training,
-                                optimizer_dict = self.optimizer.data_dict(),
-                                data = self.backward_pass,
-                                previous_forward_pass = self.forward_pass
-                                )    
-        else:
-            self.forward_pass = R.forward_pass_maxpool2d(
-                                X,
-                                kernel_size = self.kernel_size,
-                                stride = self.stride,
-                                padding = self.padding,
-                                dilation = self.dilation,
-                                return_indices = self.return_indices,
-                                ceil_mode = self.ceil_mode,
-                                training=training, 
-                                previous_forward_pass = self.forward_pass
-                                )
+        
+        self.forward_pass = R.forward_pass_maxpool2d(
+                            X, 
+                            kernel_size = self.kernel_size,
+                            stride = self.stride,
+                            padding = self.padding,
+                            dilation = self.dilation,
+                            return_indices = self.return_indices,
+                            ceil_mode = self.ceil_mode,
+                            training=training,
+                            optimizer_dict = self.optimizer.data_dict(),
+                            # previous_forward_pass = self.forward_pass
+                            )    
+
         return {'output':self.forward_pass, 'name':self.layer_name}
 
+    def output_shape(self):
+        channels, height, width = self.input_shape
+        out_height = (height - self.kernel_size[0]) / self.stride + 1
+        out_width = (width - self.kernel_size[1]) / self.stride + 1
+        assert out_height % 1 == 0
+        assert out_width % 1 == 0
+        return channels, int(out_height), int(out_width)
 
 
 '''------------------- Math Op Layers -----------------'''
@@ -951,22 +959,20 @@ class Embedding(Layer):
             if self.backward_pass is None:
                 self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [X]}
         self.layer_input = X
-        if self.backward_pass is None:
+        if self.initial_W is not None:
             self.forward_pass = R.forward_pass_embedding(
                                 X, vocab_size = self.vocab_size, embed_dim = self.embed_dim, 
                                 input_shape = self.input_shape, 
-                                data = self.backward_pass,
                                 initial_weights = self.initial_W,
                                 optimizer_dict = self.optimizer.data_dict(),
-                                previous_forward_pass = self.forward_pass
                                 )            
         else:
             self.forward_pass = R.forward_pass_embedding(
                                 X, vocab_size = self.vocab_size, embed_dim = self.embed_dim, 
                                 input_shape = self.input_shape, 
-                                data = self.backward_pass,
+                                optimizer_dict = self.optimizer.data_dict(),
                                 previous_forward_pass = self.forward_pass
-                            )
+                                )          
         return {'output':self.forward_pass, 'name':self.layer_name}
 
     def output_shape(self):

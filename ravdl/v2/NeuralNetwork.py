@@ -73,27 +73,17 @@ class NeuralNetwork():
         # Add layer to the network
         self.layers.append(layer)
 
-    def test_on_batch(self, X, y):
+    def test_on_batch(self, X):
         """ Evaluates the model over a single batch of samples """
         y_pred = self._forward_pass(X, training=False)
-        loss = R.mean(self.loss_function['loss'](y, y_pred)) #R.cross_entropy_loss(y, y_pred))
-        acc = self.loss_function['accuracy'](y, y_pred)  #R.cross_entropy_accuracy(y, y_pred)
-
-        return loss, acc
+        return y_pred
 
     def train_on_batch(self, X, y):
         """ Single gradient update over one batch of samples """
         y_pred = self._forward_pass(X)
-        loss = R.mean(self.loss_function['loss'](y, y_pred))   #R.cross_entropy_loss(y, y_pred))
-        # print('   Loss: ', loss())
-        # acc = self.loss_function.acc(y, y_pred)
-        # Calculate the gradient of the loss function wrt y_pred
-        loss_grad = self.loss_function['gradient'](y, y_pred)  #R.cross_entropy_gradient(y, y_pred)
-        # print('   Loss Gradient: ', loss_grad())
-        # Backpropagate. Update weights
-        self._backward_pass(loss_grad=loss_grad)
-
-        return loss #, acc
+        loss = self.loss_function['loss'](y, y_pred)
+        self._backward_pass(loss_grad=loss)
+        return loss
 
     def fit(self, X, y, n_epochs, batch_size, save_model = False, persist_weights=False):
         """ Trains the model for a fixed number of epochs """
@@ -120,26 +110,15 @@ class NeuralNetwork():
         """ Calculate the output of the NN """
         layer_output = X
         for layer in self.layers:
-            if layer == self.layers[0]:
-                layer_output = layer._forward_pass(layer_output, input_layer="True", training = training)
-                if isinstance(layer_output, dict):
-                    layer_output = layer_output['output']
-            else:
-                layer_output = layer._forward_pass(layer_output, training = training)
-                if isinstance(layer_output, dict):
-                    layer_output = layer_output['output']
+            layer_output = layer._forward_pass(layer_output, training = training)
+            if isinstance(layer_output, dict):
+                layer_output = layer_output['output']
 
         return layer_output
 
     def _backward_pass(self, loss_grad):
         """ Propagate the gradient 'backwards' and update the weights in each layer """
-        reversed_layers = list(reversed(self.layers))
-        for layer in reversed_layers:
-            if layer == reversed_layers[0]:
-                loss_grad = layer._backward_pass(loss_grad, input_layer="True")
-            else:
-                loss_grad = layer._backward_pass(loss_grad)
-
+        self.start_backward_marker = R.start_backward_marker(loss_grad)        
 
     def summary(self, name="Model Summary"):
         # Print model name
