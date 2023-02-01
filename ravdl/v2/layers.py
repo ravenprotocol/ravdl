@@ -1,9 +1,91 @@
 import ravop as R
 import numpy as np
 import math
-import onnx
-from ..utils.data_operations import determine_padding
-from ..utils import create_initializer_tensor
+from .utils.data_operations import determine_padding
+
+
+class CustomLayer():
+    def __init__(self) -> None:
+        self.graph = {}
+        self.layer_type = []
+        self.layer_name = None
+        self.graph_params = {}
+        self.forward_pass = None
+        self.backward_pass = None
+        self.grads_list = []
+        self.last_layer_name = None
+        self.grad_dict = {}
+
+    def initialize(self, optimizer):
+        for attr in self.__dict__:
+            if isinstance(self.__dict__[attr], Layer) or isinstance(self.__dict__[attr], CustomLayer):
+                layer = self.__dict__[attr]
+                layer_name=layer.__class__.__name__
+                self.layer_type.append(layer_name)
+                if layer_name in self.layer_type:
+                    layer_name+="_"+str(self.layer_type.count(layer.__class__.__name__)) 
+                if "Activation" in layer_name:
+                    layer_name += "_"+layer.activation_name                
+                layer_name = self.layer_name + "_" + layer_name
+                layer.set_layer_name(layer_name)
+                if hasattr(layer, 'initialize'):
+                    layer.initialize(optimizer)
+            elif isinstance(self.__dict__[attr],list):
+                for item in self.__dict__[attr]:
+                    if isinstance(item,CustomLayer) or isinstance(item,Layer):
+                        layer = item
+                        layer_name=layer.__class__.__name__
+                        self.layer_type.append(layer_name)
+                        if layer_name in self.layer_type:
+                            layer_name+="_"+str(self.layer_type.count(layer.__class__.__name__)) 
+                        if "Activation" in layer_name:
+                            layer_name += "_"+layer.activation_name
+                        layer_name = self.layer_name + "_" + layer_name
+                        layer.set_layer_name(layer_name)
+                        if hasattr(layer, 'initialize'):
+                            layer.initialize(optimizer)
+
+    def print_layer_names(self):
+        for attr in self.__dict__:
+            if "ravdl.v2.layers" in str(type(self.__dict__[attr])):
+                print(self.__dict__[attr].layer_name)
+
+    def set_layer_name(self, layer_name):
+        self.layer_name = layer_name
+
+    def set_graph(self):
+        for attr in self.__dict__:
+            if isinstance(self.__dict__[attr], Layer) or isinstance(self.__dict__[attr], CustomLayer):
+                self.graph = {**self.graph,**self.__dict__[attr].graph_params}
+                if hasattr(self.__dict__[attr], 'set_graph'):
+                    self.__dict__[attr].set_graph()
+
+            elif isinstance(self.__dict__[attr],list):
+                for item in self.__dict__[attr]:
+                    if isinstance(item,CustomLayer) or isinstance(item,Layer):
+                        self.graph = {**self.graph,**item.graph_params}
+                        if hasattr(item, 'set_graph'):
+                            item.set_graph()
+
+    def _forward_pass(self,*args, training=True, **kwargs):
+        inputs_list = []
+        for X in args:
+            if isinstance(X, dict):
+                prev_layer_name = X['name']
+                X = X['output']
+                if self.backward_pass is None:
+                    inputs_list.append(prev_layer_name)
+            else:
+                if self.backward_pass is None:
+                    inputs_list.append(X)
+        
+        if self.backward_pass is None:
+            self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': inputs_list}
+        
+        self.forward_pass = self._forward_pass_call(*args, training=training, **kwargs)
+        self.last_layer_name = self.forward_pass['name']
+        return {'output':self.forward_pass['output'], 'name':self.layer_name}
+        
 
 class Layer(object):
 
@@ -31,81 +113,228 @@ class Layer(object):
         """ The shape of the output produced by forward_pass """
         raise NotImplementedError()
 
+
 class Dense(Layer):
-    def __init__(self, n_units, input_shape=None):
+    def __init__(self, n_units, input_shape=None, initial_W=None, initial_w0=None, use_bias='True'):
         self.forward_pass = None
         self.backward_pass = None
         self.n_units = n_units
         self.layer_input = None
         self.input_shape = input_shape
         self.trainable = True
+        self.graph_params = {}
+        self.initial_W = initial_W
+        self.initial_w0 = initial_w0
+        self.use_bias = use_bias
 
     def initialize(self, optimizer):
         self.optimizer = optimizer
-        np_limit = 1 / math.sqrt(self.input_shape[0])
-        self.np_W  = np.random.uniform(-np_limit, np_limit, (self.input_shape[0], self.n_units))
-        self.np_w0 = np.zeros((1, self.n_units))
+        if self.input_shape is not None:
+            np_limit = 1 / math.sqrt(self.input_shape[0])
+            self.np_W  = np.random.uniform(-np_limit, np_limit, (self.input_shape[0], self.n_units))
+            self.np_w0 = np.zeros((1, self.n_units))
 
     def parameters(self): 
         return np.prod(self.np_W.shape) + np.prod(self.np_w0.shape)
 
     def _forward_pass(self, X, input_layer = "False", training=True):
+        if isinstance(X, dict):
+            prev_layer_name = X['name']
+            X = X['output']
+            if self.backward_pass is None:
+                self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [prev_layer_name]}
+        else:
+            if self.backward_pass is None:
+                self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [X]}
         self.layer_input = X
-        self.forward_pass = R.forward_pass_dense(
-            X, n_units=self.n_units, input_shape = self.input_shape, data = self.backward_pass, input_layer = input_layer
-        )
-        return self.forward_pass
-
-    def _backward_pass(self, loss_grad, input_layer = "False"):
-        if self.trainable:
-            self.backward_pass = R.backward_pass_dense(
-                loss_grad, layer_input = self.layer_input, optimizer = self.optimizer.data_dict(), data = self.forward_pass, input_layer = input_layer
-            )
-        return self.backward_pass
+        if self.initial_W is not None or self.initial_w0 is not None:
+            self.forward_pass = R.forward_pass_dense(
+                                X, n_units=self.n_units,
+                                input_layer = input_layer,
+                                optimizer_dict = self.optimizer.data_dict(),
+                                initial_W = self.initial_W,
+                                initial_w0 = self.initial_w0, 
+                                )    
+        else:
+            self.forward_pass = R.forward_pass_dense(
+                                X, n_units=self.n_units,
+                                input_layer = input_layer,
+                                optimizer_dict = self.optimizer.data_dict(),
+                                previous_forward_pass = self.forward_pass
+                                ) 
+        return {'output':self.forward_pass, 'name':self.layer_name}
 
     def output_shape(self):
         return (self.n_units, )
 
     def persist_weights(self):
-        # self.forward_pass.persist_op("{}_forward_pass".format(self.layer_name))
+        self.forward_pass.persist_op("{}_forward_pass".format(self.layer_name))
         self.backward_pass.persist_op("{}_backward_pass".format(self.layer_name))
 
-    def fetch_onnx_params(self,input_initializer, output_initializer = None):
-        backward_pass_data = R.fetch_persisting_op(op_name="{}_backward_pass".format(self.layer_name))
-
-        W_fetched = backward_pass_data["W"]
-        w0_fetched = backward_pass_data["w0"]
-
-        if isinstance(W_fetched, list):
-            W_fetched = np.array(W_fetched)
-        if isinstance(w0_fetched, list):
-            w0_fetched = np.array(w0_fetched)
-
-        dense_W_initializer_name = self.layer_name + "_W"
-        W_initializer_tensor = create_initializer_tensor(name=dense_W_initializer_name, tensor_array= W_fetched, data_type=onnx.TensorProto.FLOAT)
-        dense_w0_initializer_name = self.layer_name + "_w0"
-        w0_initializer_tensor = create_initializer_tensor(name=dense_w0_initializer_name, tensor_array= w0_fetched, data_type=onnx.TensorProto.FLOAT)
-
-        if output_initializer:
-            dense_output_node_name = output_initializer
-        else:
-            dense_output_node_name = self.layer_name + "_output"
-
-        dense_node = onnx.helper.make_node(
-            name=self.layer_name,
-            op_type="Gemm",
-            inputs=[input_initializer, dense_W_initializer_name, dense_w0_initializer_name],
-            outputs=[dense_output_node_name]
-        )
-
-        return dense_node, dense_output_node_name, [W_initializer_tensor, w0_initializer_tensor]
-
-class BatchNormalization(Layer):
-    """Batch normalization.
+class BatchNormalization1D(Layer):
+    """Batch Normalization 1D
     """
-    def __init__(self, momentum=0.99, epsilon=1e-2):
+    def __init__(self, momentum=0.99, epsilon=0.01, affine=True, input_shape=None, initial_gamma=None, initial_beta=None, initial_running_mean=None, initial_running_var=None):
         self.momentum = momentum
         self.float_momentum = momentum
+        self.trainable = True
+        self.eps = epsilon
+        self.affine = str(affine)
+        self.float_eps = epsilon
+        self.running_mean = None
+        self.running_var = None
+        self.forward_pass = None
+        self.backward_pass = None
+        self.input_shape = input_shape
+        self.graph_params = {}
+        self.initial_gamma = initial_gamma
+        self.initial_beta = initial_beta
+        self.initial_running_mean = initial_running_mean
+        self.initial_running_var = initial_running_var
+
+    def initialize(self, optimizer):
+        self.optimizer = optimizer
+        if self.input_shape is not None:
+            if len(self.input_shape) == 1:
+                shape = (1, self.input_shape[0])
+            else:
+                shape = (1,self.input_shape[0], 1,1)
+            self.np_gamma = np.ones(shape)
+            self.np_beta = np.zeros(shape)
+
+    def parameters(self):
+        return np.prod(self.np_gamma.shape) + np.prod(self.np_beta.shape)        
+
+    def _forward_pass(self, X, input_layer="False", training=True):
+        if training:
+            training="True"
+        else:
+            training = "False"
+        if isinstance(X, dict):
+            prev_layer_name = X['name']
+            X = X['output']
+            if self.backward_pass is None:
+                self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [prev_layer_name]}
+        else:
+            if self.backward_pass is None:
+                self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [X]}
+        if self.initial_gamma is not None or self.initial_beta is not None or self.initial_running_mean is not None or self.initial_running_var is not None:
+            self.forward_pass = R.forward_pass_batchnorm1d(
+                                X, 
+                                momentum = self.momentum, eps = self.eps,
+                                affine=self.affine,
+                                training=training,
+                                optimizer_dict = self.optimizer.data_dict(),
+                                initial_gamma = self.initial_gamma,
+                                initial_beta = self.initial_beta,
+                                initial_running_mean = self.initial_running_mean,
+                                initial_running_var = self.initial_running_var,
+                                )
+        else:
+            self.forward_pass = R.forward_pass_batchnorm1d(
+                                X, 
+                                momentum = self.momentum, eps = self.eps,
+                                affine=self.affine,
+                                training=training,
+                                optimizer_dict = self.optimizer.data_dict(),
+                                previous_forward_pass = self.forward_pass
+                                )       
+        
+        return {'output':self.forward_pass, 'name':self.layer_name}
+
+    def output_shape(self):
+        return self.input_shape
+
+    def persist_weights(self):
+        self.forward_pass.persist_op("{}_forward_pass".format(self.layer_name))
+        self.backward_pass.persist_op("{}_backward_pass".format(self.layer_name))
+
+class BatchNormalization2D(Layer):
+    """Batch Normalization 2D
+    """
+    def __init__(self, num_features, momentum=0.99, epsilon=0.01, affine=True, input_shape=None, initial_gamma=None, initial_beta=None, initial_running_mean=None, initial_running_var=None):
+        self.num_features = num_features
+        self.momentum = momentum
+        self.float_momentum = momentum
+        self.trainable = True
+        self.eps = epsilon
+        self.affine = str(affine)
+        self.float_eps = epsilon
+        self.running_mean = None
+        self.running_var = None
+        self.forward_pass = None
+        self.backward_pass = None
+        self.input_shape = input_shape
+        self.graph_params = {}
+        self.initial_gamma = initial_gamma
+        self.initial_beta = initial_beta
+        self.initial_running_mean = initial_running_mean
+        self.initial_running_var = initial_running_var
+
+    def initialize(self, optimizer):
+        self.optimizer = optimizer
+        if self.input_shape is not None:
+            if len(self.input_shape) == 1:
+                shape = (1, self.input_shape[0])
+            else:
+                shape = (1,self.input_shape[0], 1,1)
+            self.np_gamma = np.ones(shape)
+            self.np_beta = np.zeros(shape)
+
+    def parameters(self):
+        return np.prod(self.np_gamma.shape) + np.prod(self.np_beta.shape)        
+
+    def _forward_pass(self, X, input_layer="False", training=True):
+        if training:
+            training="True"
+        else:
+            training = "False"
+        if isinstance(X, dict):
+            prev_layer_name = X['name']
+            X = X['output']
+            if self.backward_pass is None:
+                self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [prev_layer_name]}
+        else:
+            if self.backward_pass is None:
+                self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [X]}
+        if self.initial_gamma is not None or self.initial_beta is not None or self.initial_running_mean is not None or self.initial_running_var is not None:
+            self.forward_pass = R.forward_pass_batchnorm2d(
+                                X,
+                                num_features = self.num_features, 
+                                momentum = self.momentum, eps = self.eps,
+                                affine=self.affine,
+                                training=training,
+                                optimizer_dict = self.optimizer.data_dict(),
+                                initial_gamma = self.initial_gamma,
+                                initial_beta = self.initial_beta,
+                                initial_running_mean = self.initial_running_mean,
+                                initial_running_var = self.initial_running_var,
+                                )    
+        else:
+            self.forward_pass = R.forward_pass_batchnorm2d(
+                                X,
+                                num_features = self.num_features,
+                                momentum = self.momentum, eps = self.eps,
+                                affine=self.affine,
+                                training=training, 
+                                optimizer_dict = self.optimizer.data_dict(),
+                                previous_forward_pass = self.forward_pass
+                                )
+        return {'output':self.forward_pass, 'name':self.layer_name}
+
+    def output_shape(self):
+        return self.input_shape
+
+    def persist_weights(self):
+        self.forward_pass.persist_op("{}_forward_pass".format(self.layer_name))
+        self.backward_pass.persist_op("{}_backward_pass".format(self.layer_name))
+
+
+class LayerNormalization(Layer):
+    """Batch normalization.
+    """
+    def __init__(self, normalized_shape=None, epsilon=1e-5, input_shape=None, initial_W=None, initial_w0=None):
+        self.normalized_shape = normalized_shape
         self.trainable = True
         self.eps = epsilon
         self.float_eps = epsilon
@@ -113,114 +342,65 @@ class BatchNormalization(Layer):
         self.running_var = None
         self.forward_pass = None
         self.backward_pass = None
+        self.input_shape = input_shape
+        self.graph_params = {}
+        self.initial_W = initial_W
+        self.initial_w0 = initial_w0
 
     def initialize(self, optimizer):
-        # Initialize the parameters
         self.optimizer = optimizer
-
-        if len(self.input_shape) == 1:
-            shape = (1, self.input_shape[0])
-        else:
-            shape = (1,self.input_shape[0], 1,1)
-        # np equivalent for summary params
-        self.np_gamma = np.ones(shape)
-        self.np_beta = np.zeros(shape)
+        if self.input_shape is not None:
+            if len(self.input_shape) == 1:
+                shape = (1, self.input_shape[0])
+            else:
+                shape = (1,self.input_shape[0], 1,1)
+            self.np_gamma = np.ones(shape)
+            self.np_beta = np.zeros(shape)
 
     def parameters(self):
         return np.prod(self.np_gamma.shape) + np.prod(self.np_beta.shape)        
 
     def _forward_pass(self, X, input_layer="False", training=True):
-
         if training:
             training="True"
         else:
             training = "False"
-
-        if self.trainable:
-            trainable="True"
+        if isinstance(X, dict):
+            prev_layer_name = X['name']
+            X = X['output']
+            if self.backward_pass is None:
+                self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [prev_layer_name]}
         else:
-            trainable="False"
-
-
-        self.forward_pass = R.forward_pass_batchnorm(
-            X, input_shape=self.input_shape,
-            momentum = self.momentum, eps = self.eps,
-            training=training, trainable=trainable, 
-            data = self.backward_pass,
-            input_layer=input_layer
-        )
-
-        return self.forward_pass
-
-    def _backward_pass(self, accum_grad, input_layer="False"):
-
-        # Save parameters used during the forward pass
-        if self.trainable:
-            trainable = "True"
-
-        self.backward_pass = R.backward_pass_batchnorm(
-            accum_grad,
-            input_shape = self.input_shape,
-            optimizer = self.optimizer.data_dict(),
-            trainable=trainable,
-            data = self.forward_pass,
-            input_layer = input_layer
-        )
-
-        return self.backward_pass
+            if self.backward_pass is None:
+                self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [X]}
+        if self.initial_W is not None or self.initial_w0 is not None:
+            self.forward_pass = R.forward_pass_layernorm(
+                                X, normalized_shape=self.normalized_shape,
+                                input_shape=self.input_shape,
+                                eps = self.eps,
+                                training=training, 
+                                optimizer_dict = self.optimizer.data_dict(),
+                                initial_W = self.initial_W,
+                                initial_w0 = self.initial_w0,
+                                )
+        else:
+            self.forward_pass = R.forward_pass_layernorm(
+                                X, normalized_shape=self.normalized_shape,
+                                input_shape=self.input_shape,
+                                eps = self.eps,
+                                training=training, 
+                                optimizer_dict = self.optimizer.data_dict(),
+                                previous_forward_pass = self.forward_pass
+                                )
+        return {'output':self.forward_pass, 'name':self.layer_name}
 
     def output_shape(self):
         return self.input_shape
 
     def persist_weights(self):
-        # self.forward_pass.persist_op("{}_forward_pass".format(self.layer_name))
+        self.forward_pass.persist_op("{}_forward_pass".format(self.layer_name))
         self.backward_pass.persist_op("{}_backward_pass".format(self.layer_name))
 
-    def fetch_onnx_params(self,input_initializer, output_initializer = None):
-        backward_pass_data = R.fetch_persisting_op(op_name="{}_backward_pass".format(self.layer_name))
-
-        gamma_fetched = backward_pass_data["gamma"]
-        beta_fetched = backward_pass_data["beta"]
-        running_mean_fetched = backward_pass_data["running_mean"]
-        running_var_fetched = backward_pass_data["running_var"]
-
-        if isinstance(gamma_fetched, list):
-            gamma_fetched = np.array(gamma_fetched)
-        if isinstance(beta_fetched, list):
-            beta_fetched = np.array(beta_fetched)
-        if isinstance(running_mean_fetched, list):
-            running_mean_fetched = np.array(running_mean_fetched)
-        if isinstance(running_var_fetched, list):
-            running_var_fetched = np.array(running_var_fetched)
-
-        bn_gamma_initializer_name = self.layer_name + "_gamma"
-        gamma_initializer_tensor = create_initializer_tensor(name=bn_gamma_initializer_name, tensor_array= gamma_fetched.reshape((-1)), data_type=onnx.TensorProto.FLOAT)
-        bn_beta_initializer_name = self.layer_name + "_beta"
-        beta_initializer_tensor = create_initializer_tensor(name=bn_beta_initializer_name, tensor_array= beta_fetched.reshape((-1)), data_type=onnx.TensorProto.FLOAT)
-        bn_mean_initializer_name = self.layer_name + "_mean"
-        mean_initializer_tensor = create_initializer_tensor(name=bn_mean_initializer_name, tensor_array= running_mean_fetched.reshape((-1)), data_type=onnx.TensorProto.FLOAT)
-        bn_var_initializer_name = self.layer_name + "_var"
-        var_initializer_tensor = create_initializer_tensor(name=bn_var_initializer_name, tensor_array= running_var_fetched.reshape((-1)), data_type=onnx.TensorProto.FLOAT)
-        
-        if output_initializer:
-            bn_output_node_name = output_initializer
-        else:
-            bn_output_node_name = self.layer_name + "_output"
-
-        bn_node = onnx.helper.make_node(
-            name=self.layer_name,  # Name is optional.
-            op_type="BatchNormalization",
-            inputs=[
-                input_initializer, bn_gamma_initializer_name,
-                bn_beta_initializer_name, bn_mean_initializer_name,
-                bn_var_initializer_name
-            ],
-            momentum=self.float_momentum,
-            epsilon=self.float_eps,
-            outputs=[bn_output_node_name],
-        )
-
-        return bn_node, bn_output_node_name, [gamma_initializer_tensor, beta_initializer_tensor, mean_initializer_tensor, var_initializer_tensor]
 
 class Dropout(Layer):
     """A layer that randomly sets a fraction p of the output units of the previous layer
@@ -231,7 +411,7 @@ class Dropout(Layer):
     p: float
         The probability that unit x is set to zero.
     """
-    def __init__(self, p=0.2):
+    def __init__(self, p=0.5):
         self.p = p
         self._mask = None
         self.input_shape = None
@@ -240,20 +420,23 @@ class Dropout(Layer):
         self.trainable = True
         self.forward_pass = None
         self.backward_pass = None
+        self.graph_params = {}
 
     def _forward_pass(self, X, training=True, input_layer="False"):
-        # c = g.one - self.p
         if training:
             training = "True"
         else:
             training = "False"
-
-        self.forward_pass = R.forward_pass_dropout(X, p = self.p, training=training, input_layer = input_layer)
-        return self.forward_pass
-
-    def _backward_pass(self, accum_grad, input_layer="False"):
-        self.backward_pass = R.backward_pass_dropout(accum_grad, data = self.forward_pass, input_layer = input_layer)
-        return self.backward_pass
+        if isinstance(X, dict):
+            prev_layer_name = X['name']
+            X = X['output']
+            if self.backward_pass is None:
+                self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [prev_layer_name]}
+        else:
+            if self.backward_pass is None:
+                self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [X]}
+        self.forward_pass = R.forward_pass_dropout(X, p = self.p, training=training)
+        return {'output':self.forward_pass, 'name':self.layer_name}
 
     def output_shape(self):
         return self.input_shape
@@ -261,35 +444,9 @@ class Dropout(Layer):
     def persist_weights(self):
         pass
 
-    def fetch_onnx_params(self,input_initializer, output_initializer = None):
-        p_fetched = self.p
+    def save_weights(self):
+        self.p.persist_op(self.get_layer_name() + "_p")
 
-        if not isinstance(p_fetched, np.ndarray):
-            p_fetched = np.array(p_fetched)
-
-        dropout_p_initializer_name = self.layer_name + "_p"
-        p_initializer_tensor = create_initializer_tensor(name=dropout_p_initializer_name, tensor_array= p_fetched, data_type=onnx.TensorProto.FLOAT)
-    
-        if output_initializer:
-            dropout_output_node_name = output_initializer
-        else:
-            dropout_output_node_name = self.layer_name + "_output"
-
-        dropout_node = onnx.helper.make_node(
-            name=self.layer_name,
-            op_type="Dropout",
-            inputs=[input_initializer, dropout_p_initializer_name],
-            outputs=[dropout_output_node_name]
-        )
-
-        return dropout_node, dropout_output_node_name, [p_initializer_tensor]
-
-onnx_activation_functions = {
-    'relu': 'Relu',
-    'sigmoid': 'Sigmoid',
-    'softmax': 'Softmax',
-    'tanh': 'Tanh'
-}
 
 class Activation(Layer):
     """A layer that applies an activation operation to the input.
@@ -305,19 +462,20 @@ class Activation(Layer):
         self.trainable = True
         self.forward_pass = None
         self.backward_pass = None
+        self.graph_params = {}
         
-
-    # def layer_name(self):
-    #     return "Activation (%s)" % (self.activation_func.__class__.__name__)
-
     def _forward_pass(self, X, training=True, input_layer = "False"):
+        if isinstance(X, dict):
+            prev_layer_name = X['name']
+            X = X['output']
+            if self.backward_pass is None:
+                self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [prev_layer_name]}
+        else:
+            if self.backward_pass is None:
+                self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [X]}
         self.layer_input = X
-        self.forward_pass = R.forward_pass_activation(X, act_data = str({'name':self.activation_name}), input_layer = input_layer)
-        return self.forward_pass
-
-    def _backward_pass(self, accum_grad, input_layer="False"):
-        self.backward_pass = R.backward_pass_activation(accum_grad, layer_input = self.layer_input, act_data = str({'name':self.activation_name}), input_layer = input_layer)
-        return self.backward_pass
+        self.forward_pass = R.forward_pass_activation(X, act_data = str({'name':self.activation_name}))
+        return {'output':self.forward_pass, 'name':self.layer_name}
 
     def output_shape(self):
         return self.input_shape
@@ -325,249 +483,501 @@ class Activation(Layer):
     def persist_weights(self):
         pass
 
-    def fetch_onnx_params(self,input_initializer, output_initializer = None):
-        if output_initializer:
-            activation_output_node_name = output_initializer
-        else:
-            activation_output_node_name = self.layer_name + "_output"
-
-        op_type = onnx_activation_functions[self.activation_name]
-
-        activation_node = onnx.helper.make_node(
-            name=self.layer_name,
-            op_type=op_type,
-            inputs=[input_initializer],
-            outputs=[activation_output_node_name]
-        )
-
-        return activation_node, activation_output_node_name, []
-
 class Conv2D(Layer):
+    """A 2D convolutional layer.
 
-    def __init__(self, n_filters, filter_shape, input_shape=None, padding='same', stride=1):
-        self.n_filters = n_filters
-        self.filter_shape = filter_shape
-        self.padding = padding
+    Parameters:
+    -----------
+    n_filters: int
+        The number of filters that the layer will learn.
+    filter_shape: tuple
+        The shape of the filters that the layer will learn.
+    stride: int
+        The stride of the convolution operation.
+    padding: string
+        The padding that will be applied to the input.
+    """
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', initial_W=None, initial_w0=None, input_shape=None):
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = kernel_size
         self.stride = stride
-        self.input_shape = input_shape
+        self.padding = padding
+        self.dilation = dilation
+        self.groups = groups
+        self.bias = str(bias)
+        self.padding_mode = padding_mode
+        self.initial_W = initial_W
+        self.initial_w0 = initial_w0
         self.trainable = True
-        self.W = None
-        self.w0 = None
         self.forward_pass = None
         self.backward_pass = None
+        self.input_shape = input_shape
+        self.graph_params = {}
+
+    def initialize(self, optimizer):
+        self.optimizer = optimizer
+        if self.input_shape is not None:
+            filter_height, filter_width = self.kernel_size
+            channels = self.input_shape[0]
+            limit = 1 / math.sqrt(np.prod(self.kernel_size))
+            self.W  = np.random.uniform(-limit, limit, size=(self.out_channels, channels, filter_height, filter_width))
+            self.w0 = np.zeros((self.out_channels, 1))
+
+    def parameters(self):
+        return  np.prod(self.W.shape) + np.prod(self.w0.shape)
+
+    def _forward_pass(self, X, input_layer="False", training=True):
+        if training:
+            training="True"
+        else:
+            training = "False"
+        if isinstance(X, dict):
+            prev_layer_name = X['name']
+            X = X['output']
+            if self.backward_pass is None:
+                self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [prev_layer_name]}
+        else:
+            if self.backward_pass is None:
+                self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [X]}
+        if self.initial_W is not None or self.initial_w0 is not None:
+            self.forward_pass = R.forward_pass_conv2d(
+                                X, 
+                                in_channels = self.in_channels,
+                                out_channels = self.out_channels,
+                                kernel_size = self.kernel_size,
+                                stride = self.stride,
+                                padding = self.padding,
+                                dilation = self.dilation,
+                                groups = self.groups,
+                                bias = self.bias,
+                                padding_mode = self.padding_mode,
+                                training=training,
+                                optimizer_dict = self.optimizer.data_dict(),
+                                initial_W = self.initial_W,
+                                initial_w0 = self.initial_w0,
+                                )    
+        else:
+            self.forward_pass = R.forward_pass_conv2d(
+                                X, 
+                                in_channels = self.in_channels,
+                                out_channels = self.out_channels,
+                                kernel_size = self.kernel_size,
+                                stride = self.stride,
+                                padding = self.padding,
+                                dilation = self.dilation,
+                                groups = self.groups,
+                                bias = self.bias,
+                                padding_mode = self.padding_mode,
+                                training=training,
+                                optimizer_dict = self.optimizer.data_dict(),
+                                previous_forward_pass = self.forward_pass
+                                ) 
+        return {'output':self.forward_pass, 'name':self.layer_name}
+
+    def output_shape(self):
+        channels, height, width = self.input_shape
+        pad_h, pad_w = determine_padding(self.kernel_size, output_shape=self.padding)
+        output_height = (height + np.sum(pad_h) - self.kernel_size[0]) / self.stride + 1
+        output_width = (width + np.sum(pad_w) - self.kernel_size[1]) / self.stride + 1
+        return self.out_channels, int(output_height), int(output_width)
+
+    
+class Flatten(Layer):
+    def __init__(self, start_dim=1, end_dim=-1):
+        self.start_dim = start_dim
+        self.end_dim = end_dim
+        self.trainable = True
+        self.forward_pass = None
+        self.backward_pass = None
+        self.graph_params = {}
+
+    def _forward_pass(self, X, training=True, input_layer = "False"):
+        if isinstance(X, dict):
+            prev_layer_name = X['name']
+            X = X['output']
+            if self.backward_pass is None:
+                self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [prev_layer_name]}
+        else:
+            if self.backward_pass is None:
+                self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [X]}
+        self.forward_pass = R.forward_pass_flatten(X, start_dim = self.start_dim, end_dim = self.end_dim)
+        return {'output':self.forward_pass, 'name':self.layer_name}
+    
+    def output_shape(self):
+        return (np.prod(self.input_shape),)
+
+class MaxPooling2D(Layer):
+    def __init__(self, kernel_size, stride=None, padding=0, dilation=1, return_indices=False, ceil_mode=False):
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.padding = padding
+        self.dilation = dilation
+        self.return_indices = str(return_indices)
+        self.ceil_mode = str(ceil_mode)
+        self.trainable = True
+        self.forward_pass = None
+        self.backward_pass = None
+        self.graph_params = {}
 
     def initialize(self, optimizer):
         self.optimizer = optimizer
 
-        # Initialize the weights
-        filter_height, filter_width = self.filter_shape
-        channels = self.input_shape[0]
-
-        # equivalent for summary params
-        np_limit = 1 / math.sqrt(np.prod(self.filter_shape))
-        self.np_W  = np.random.uniform(-np_limit, np_limit, size=(self.n_filters, channels, filter_height, filter_width))
-        self.np_w0 = np.zeros((self.n_filters, 1))
-
-    def parameters(self):
-        return np.prod(self.np_W.shape) + np.prod(self.np_w0.shape)
-
+    
     def _forward_pass(self, X, input_layer="False", training=True):
-        self.layer_input = X
-        self.forward_pass = R.forward_pass_conv2d(
-            X,
-            input_shape = self.input_shape, 
-            n_filters = self.n_filters, filter_shape = self.filter_shape, stride = self.stride, padding_data=str({'padding':self.padding}),
-            data = self.backward_pass, 
-            input_layer = input_layer
-        )
-        return self.forward_pass 
-
-
-    def _backward_pass(self, accum_grad, input_layer = "False"):
-        # Reshape accumulated gradient into column shape
-        if self.trainable:
-            trainable = "True"
+        if training:
+            training="True"
         else:
-            trainable = "False"
-
-        self.backward_pass = R.backward_pass_conv2d(accum_grad,
-            layer_input = self.layer_input,
-            n_filters = self.n_filters, filter_shape = self.filter_shape, stride = self.stride, padding_data=str({'padding':self.padding}),
-            optimizer = self.optimizer.data_dict(),
-            data = self.forward_pass,
-            trainable = trainable,
-            input_layer=input_layer
-        )
-
-        return self.backward_pass
-
-    def output_shape(self):
-        channels, height, width = self.input_shape
-        pad_h, pad_w = determine_padding(self.filter_shape, output_shape=self.padding)
-        output_height = (height + np.sum(pad_h) - self.filter_shape[0]) / self.stride + 1
-        output_width = (width + np.sum(pad_w) - self.filter_shape[1]) / self.stride + 1
-        return self.n_filters, int(output_height), int(output_width)
-
-    def persist_weights(self):
-        # self.forward_pass.persist_op("{}_forward_pass".format(self.layer_name))
-        self.backward_pass.persist_op("{}_backward_pass".format(self.layer_name))
-
-    def fetch_onnx_params(self,input_initializer, output_initializer = None):
-        backward_pass_data = R.fetch_persisting_op(op_name="{}_backward_pass".format(self.layer_name))
-
-        W_fetched = backward_pass_data["W"]
-        w0_fetched = backward_pass_data["w0"]
-
-        if isinstance(W_fetched, list):
-            W_fetched = np.array(W_fetched)
-        if isinstance(w0_fetched, list):
-            w0_fetched = np.array(w0_fetched)
-
-        conv_W_initializer_name = self.layer_name + "_W"
-        W_initializer_tensor = create_initializer_tensor(name=conv_W_initializer_name, tensor_array= W_fetched, data_type=onnx.TensorProto.FLOAT)
-        conv_w0_initializer_name = self.layer_name + "_w0"
-        w0_initializer_tensor = create_initializer_tensor(name=conv_w0_initializer_name, tensor_array= w0_fetched, data_type=onnx.TensorProto.FLOAT)
-
-        if output_initializer:
-            conv_output_node_name = output_initializer
+            training = "False"
+        if isinstance(X, dict):
+            prev_layer_name = X['name']
+            X = X['output']
+            if self.backward_pass is None:
+                self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [prev_layer_name]}
         else:
-            conv_output_node_name = self.layer_name + "_output"
-
-        if self.padding == 'same':
-            pad = 'SAME_UPPER'
-        else:
-            pad = 'VALID'
-
-        if isinstance(self.stride, int):
-            stride = [self.stride, self.stride]
-        else:
-            stride = np.asarray(self.stride).tolist()
-
-        conv_node = onnx.helper.make_node(
-            name=self.layer_name,
-            op_type="Conv",
-            inputs=[
-                input_initializer, conv_W_initializer_name,
-                conv_w0_initializer_name
-            ],
-            outputs=[conv_output_node_name],
-            kernel_shape=np.asarray(self.filter_shape).tolist(),
-            pads=(1,1,1,1),
-            strides=stride
-        )
-
-        return conv_node, conv_output_node_name, [W_initializer_tensor, w0_initializer_tensor]
-
-class Flatten(Layer):
-    """ Turns a multidimensional matrix into two-dimensional """
-    def __init__(self, input_shape=None):
-        self.prev_shape = None
-        self.trainable = True
-        self.input_shape = input_shape
-        self.forward_pass = None
-        self.backward_pass = None
-
-    def _forward_pass(self, X, training=True, input_layer = "False"):
-        self.prev_input = X
-        self.forward_pass = R.forward_pass_flatten(X, input_layer = input_layer)
-        return self.forward_pass
-
-    def _backward_pass(self, accum_grad, input_layer = "False"):
-        self.backward_pass = R.backward_pass_flatten(accum_grad, prev_input = self.prev_input, input_layer = input_layer)
-        return self.backward_pass
-
-    def output_shape(self):
-        return (int(np.prod(self.input_shape)),)
-
-    def persist_weights(self):
-        pass
-
-    def fetch_onnx_params(self,input_initializer, output_initializer = None):
-        if output_initializer:
-            flatten_output_node_name = output_initializer
-        else:
-            flatten_output_node_name = self.layer_name + "_output"
-
-        flatten_node = onnx.helper.make_node(
-            name=self.layer_name,  # Name is optional.
-            op_type="Flatten",
-            inputs=[
-                input_initializer
-            ],
-            outputs=[flatten_output_node_name],
-        )
-
-        return flatten_node, flatten_output_node_name, []
-
-class MaxPooling2D(Layer):
-    """A parent class of MaxPooling2D and AveragePooling2D
-    """
-    def __init__(self, pool_shape=(2, 2), stride=1, padding="same"):
-        self.pool_shape = pool_shape
-        self.stride = stride
-        self.padding_data = {'padding': padding}
-        self.trainable = True
-        self.forward_pass = None
-        self.backward_pass = None
-
-    def _forward_pass(self, X, training=True, input_layer = "False"):
-
+            if self.backward_pass is None:
+                self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [X]}
+        
         self.forward_pass = R.forward_pass_maxpool2d(
-            X,
-            input_shape = self.input_shape, 
-            pool_shape = self.pool_shape, stride = self.stride, padding_data = str(self.padding_data),
-            input_layer = input_layer
-        )
+                            X, 
+                            kernel_size = self.kernel_size,
+                            stride = self.stride,
+                            padding = self.padding,
+                            dilation = self.dilation,
+                            return_indices = self.return_indices,
+                            ceil_mode = self.ceil_mode,
+                            training=training,
+                            optimizer_dict = self.optimizer.data_dict(),
+                            # previous_forward_pass = self.forward_pass
+                            )    
 
-        return self.forward_pass
-
-    def _backward_pass(self, accum_grad, input_layer = "False"):
-        # batch_size, _, _, _ = accum_grad().shape
-
-        self.backward_pass = R.backward_pass_maxpool2d(
-            accum_grad, 
-            input_shape = self.input_shape, 
-            pool_shape = self.pool_shape, stride = self.stride, 
-            padding_data = str(self.padding_data),
-            data = self.forward_pass,
-            input_layer = input_layer
-        )
-
-        return self.backward_pass
+        return {'output':self.forward_pass, 'name':self.layer_name}
 
     def output_shape(self):
         channels, height, width = self.input_shape
-        out_height = (height - self.pool_shape[0]) / self.stride + 1
-        out_width = (width - self.pool_shape[1]) / self.stride + 1
+        out_height = (height - self.kernel_size[0]) / self.stride + 1
+        out_width = (width - self.kernel_size[1]) / self.stride + 1
         assert out_height % 1 == 0
         assert out_width % 1 == 0
         return channels, int(out_height), int(out_width)
 
-    def persist_weights(self):
-        pass
 
-    def fetch_onnx_params(self,input_initializer, output_initializer = None):
-        if output_initializer:
-            maxpool2d_output_node_name = output_initializer
+'''------------------- Math Op Layers -----------------'''
+
+class Concat(Layer):
+    def __init__(self):
+        self.forward_pass = None
+        self.backward_pass = None
+        self.graph_params = {}
+
+    def _forward_pass(self, x1, x2, axis=-1, input_layer="False", training=True):
+        inputs_list = []
+        if isinstance(x1, dict):
+            prev_layer_name = x1['name']
+            x1 = x1['output']
+            if self.backward_pass is None:
+                inputs_list.append(prev_layer_name)
         else:
-            maxpool2d_output_node_name = self.layer_name + "_output"
+            if self.backward_pass is None:
+                inputs_list.append(x1)
 
-        if isinstance(self.stride, int):
-            stride = [self.stride, self.stride]
+        if isinstance(x2, dict):
+            prev_layer_name = x2['name']
+            x2 = x2['output']
+            if self.backward_pass is None:
+                inputs_list.append(prev_layer_name)
         else:
-            stride = np.asarray(self.stride).tolist()
+            if self.backward_pass is None:
+                inputs_list.append(x2)
+        if self.backward_pass is None:
+            self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': inputs_list}
+        self.x1 = x1
+        self.x2 = x2
+        self.axis = axis
+        self.forward_pass = R.forward_pass_concat(x1,x2,axis=axis,input_layer = input_layer)
+        return {'output':self.forward_pass, 'name':self.layer_name}
 
-        maxpool2d_node = onnx.helper.make_node(
-            name=self.layer_name,  # Name is optional.
-            op_type="MaxPool",
-            inputs=[
-                input_initializer
-            ],
-            outputs=[maxpool2d_output_node_name],
-            kernel_shape=np.asarray(self.pool_shape).tolist(),
-            strides=stride,
-            # pads=self.padding,
+
+class Add(Layer):
+    def __init__(self):
+        self.forward_pass = None
+        self.backward_pass = None
+        self.graph_params = {}
+
+    def _forward_pass(self, x1, x2, input_layer="False", training=True):
+        inputs_list = []
+        if isinstance(x1, dict):
+            prev_layer_name = x1['name']
+            x1 = x1['output']
+            if self.backward_pass is None:
+                inputs_list.append(prev_layer_name)
+        else:
+            if self.backward_pass is None:
+                inputs_list.append(x1)
+
+        if isinstance(x2, dict):
+            prev_layer_name = x2['name']
+            x2 = x2['output']
+            if self.backward_pass is None:
+                inputs_list.append(prev_layer_name)
+        else:
+            if self.backward_pass is None:
+                inputs_list.append(x2)
+        if self.backward_pass is None:
+            self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': inputs_list}
+        
+        self.forward_pass = R.forward_pass_add(x1,x2,input_layer = input_layer)
+        return {'output':self.forward_pass, 'name':self.layer_name}
+
+
+class Subtract(Layer):
+    def __init__(self):
+        self.forward_pass = None
+        self.backward_pass = None
+        self.graph_params = {}
+
+    def _forward_pass(self, x1, x2, input_layer="False", training=True):
+        inputs_list = []
+        if isinstance(x1, dict):
+            prev_layer_name = x1['name']
+            x1 = x1['output']
+            if self.backward_pass is None:
+                inputs_list.append(prev_layer_name)
+        else:
+            if self.backward_pass is None:
+                inputs_list.append(x1)
+
+        if isinstance(x2, dict):
+            prev_layer_name = x2['name']
+            x2 = x2['output']
+            if self.backward_pass is None:
+                inputs_list.append(prev_layer_name)
+        else:
+            if self.backward_pass is None:
+                inputs_list.append(x2)
+        if self.backward_pass is None:
+            self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': inputs_list}
+        
+        self.forward_pass = R.forward_pass_subtract(x1,x2,input_layer = input_layer)
+        return {'output':self.forward_pass, 'name':self.layer_name}
+
+
+class Dot(Layer):
+    def __init__(self):
+        self.forward_pass = None
+        self.backward_pass = None
+        self.graph_params = {}
+
+    def _forward_pass(self, x1, x2, input_layer="False", training=True):
+        inputs_list = []
+        if isinstance(x1, dict):
+            prev_layer_name = x1['name']
+            x1 = x1['output']
+            if self.backward_pass is None:
+                inputs_list.append(prev_layer_name)
+        else:
+            if self.backward_pass is None:
+                inputs_list.append(x1)
+        if isinstance(x2, dict):
+            prev_layer_name = x2['name']
+            x2 = x2['output']
+            if self.backward_pass is None:
+                inputs_list.append(prev_layer_name)
+        else:
+            if self.backward_pass is None:
+                inputs_list.append(x2)
+        if self.backward_pass is None:
+            self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': inputs_list}
+        self.x1 = x1
+        self.x2 = x2
+        self.forward_pass = R.forward_pass_dot(x1,x2,input_layer = input_layer)
+        return {'output':self.forward_pass, 'name':self.layer_name}
+
+
+class Reshape(Layer):
+    def __init__(self, contiguous="False"):
+        self.forward_pass = None
+        self.backward_pass = None
+        self.graph_params = {}
+        self.contiguous = contiguous
+
+    def _forward_pass(self, X, shape=None, input_layer="False", training=True):
+        if isinstance(X, dict):
+            prev_layer_name = X['name']
+            X = X['output']
+            if self.backward_pass is None:
+                self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [prev_layer_name]}
+        else:
+            if self.backward_pass is None:
+                self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [X]}
+        self.layer_input = X
+        self.forward_pass = R.forward_pass_reshape(
+            X, contiguous=self.contiguous, shape=shape, input_layer = input_layer
         )
+        return {'output':self.forward_pass, 'name':self.layer_name}
 
-        return maxpool2d_node, maxpool2d_output_node_name, []
 
+class Transpose(Layer):
+    def __init__(self):
+        self.forward_pass = None
+        self.backward_pass = None
+        self.graph_params = {}
+
+    def _forward_pass(self, X, axes=None, input_layer="False", training=True):
+        if isinstance(X, dict):
+            prev_layer_name = X['name']
+            X = X['output']
+            if self.backward_pass is None:
+                self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [prev_layer_name]}
+        else:
+            if self.backward_pass is None:
+                self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [X]}
+        self.layer_input = X
+        self.axes = axes
+        self.forward_pass = R.forward_pass_transpose(
+            X, axes=axes, input_layer = input_layer
+        )
+        return {'output':self.forward_pass, 'name':self.layer_name}
+
+
+class Power(Layer):
+    def __init__(self):
+        self.forward_pass = None
+        self.backward_pass = None
+        self.graph_params = {}
+
+    def _forward_pass(self, X, power=None, input_layer="False", training=True):
+        if isinstance(X, dict):
+            prev_layer_name = X['name']
+            X = X['output']
+            if self.backward_pass is None:
+                self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [prev_layer_name]}
+        else:
+            if self.backward_pass is None:
+                self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [X]}
+        self.power = power
+        self.layer_input = X
+        self.forward_pass = R.forward_pass_power(
+            X, power=power, input_layer = input_layer
+        )
+        return {'output':self.forward_pass, 'name':self.layer_name}
+
+
+class Multiply(Layer):
+    def __init__(self):
+        self.forward_pass = None
+        self.backward_pass = None
+        self.graph_params = {}
+
+    def _forward_pass(self, x1, x2, input_layer="False", training=True):
+        inputs_list = []
+        if isinstance(x1, dict):
+            prev_layer_name = x1['name']
+            x1 = x1['output']
+            if self.backward_pass is None:
+                inputs_list.append(prev_layer_name)
+        else:
+            if self.backward_pass is None:
+                inputs_list.append(x1)
+        if isinstance(x2, dict):
+            prev_layer_name = x2['name']
+            x2 = x2['output']
+            if self.backward_pass is None:
+                inputs_list.append(prev_layer_name)
+        else:
+            if self.backward_pass is None:
+                inputs_list.append(x2)
+        if self.backward_pass is None:
+            self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': inputs_list}
+        self.x1 = x1
+        self.x2 = x2
+        self.forward_pass = R.forward_pass_multiply(x1,x2,input_layer = input_layer)
+        return {'output':self.forward_pass, 'name':self.layer_name}
+
+
+class Division(Layer):
+    def __init__(self):
+        self.forward_pass = None
+        self.backward_pass = None
+        self.graph_params = {}
+
+    def _forward_pass(self, x1, x2, input_layer="False", training=True):
+        inputs_list = []
+        if isinstance(x1, dict):
+            prev_layer_name = x1['name']
+            x1 = x1['output']
+            if self.backward_pass is None:
+                inputs_list.append(prev_layer_name)
+        else:
+            if self.backward_pass is None:
+                inputs_list.append(x1)
+        if isinstance(x2, dict):
+            prev_layer_name = x2['name']
+            x2 = x2['output']
+            if self.backward_pass is None:
+                inputs_list.append(prev_layer_name)
+        else:
+            if self.backward_pass is None:
+                inputs_list.append(x2)
+        if self.backward_pass is None:
+            self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': inputs_list}
+        self.x1 = x1
+        self.x2 = x2
+        self.forward_pass = R.forward_pass_division(x1,x2,input_layer = input_layer)
+        return {'output':self.forward_pass, 'name':self.layer_name}
+
+
+class Embedding(Layer):
+    def __init__(self, vocab_size, embed_dim, input_shape=None, initial_W=None):
+        self.forward_pass = None
+        self.backward_pass = None
+        self.embed_dim = embed_dim
+        self.vocab_size = vocab_size
+        self.layer_input = None
+        self.input_shape = input_shape
+        self.trainable = True
+        self.graph_params = {}
+        self.initial_W = initial_W
+
+    def initialize(self, optimizer):
+        self.optimizer = optimizer
+        if self.input_shape is not None:
+            self.np_wrd_embed = np.random.randn(self.vocab_size, self.embed_dim) * 0.01
+    
+            assert(self.np_wrd_embed.shape == (self.vocab_size, self.embed_dim))
+
+    def parameters(self): 
+        return np.prod(self.np_wrd_embed.shape)
+
+    def _forward_pass(self, X, input_layer = "False", training=True):
+        if isinstance(X, dict):
+            prev_layer_name = X['name']
+            X = X['output']
+            if self.backward_pass is None:
+                self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [prev_layer_name]}
+        else:
+            if self.backward_pass is None:
+                self.graph_params[self.layer_name] = {'layer_instance':self, 'inputs': [X]}
+        self.layer_input = X
+        if self.initial_W is not None:
+            self.forward_pass = R.forward_pass_embedding(
+                                X, vocab_size = self.vocab_size, embed_dim = self.embed_dim, 
+                                input_shape = self.input_shape, 
+                                initial_weights = self.initial_W,
+                                optimizer_dict = self.optimizer.data_dict(),
+                                )            
+        else:
+            self.forward_pass = R.forward_pass_embedding(
+                                X, vocab_size = self.vocab_size, embed_dim = self.embed_dim, 
+                                input_shape = self.input_shape, 
+                                optimizer_dict = self.optimizer.data_dict(),
+                                previous_forward_pass = self.forward_pass
+                                )          
+        return {'output':self.forward_pass, 'name':self.layer_name}
+
+    def output_shape(self):
+        return (self.n_units, )
+
+    def persist_weights(self):
+        self.forward_pass.persist_op("{}_forward_pass".format(self.layer_name))
+        self.backward_pass.persist_op("{}_backward_pass".format(self.layer_name))
