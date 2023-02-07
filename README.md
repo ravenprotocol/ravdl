@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://user-images.githubusercontent.com/36446402/217170090-b3090798-bc0c-4ead-aa3b-7b4ced07e3ec.svg" width="100" height="55">
+  <img src="https://user-images.githubusercontent.com/36446402/217170090-b3090798-bc0c-4ead-aa3b-7b4ced07e3ec.svg" width="200" height="100">
 <h1> RavDL - Deep Learning Library </h1>
 </div>
 
