@@ -21,7 +21,7 @@ def isLatestVersion(pkgName):
     # print('Current version of '+pkgName+' is '+current_version)
     # print('Latest version of '+pkgName+' is '+latest_version)
 
-    return latest_version == current_version
+    return latest_version <= current_version
 
 def create_initializer_tensor(
         name: str,
