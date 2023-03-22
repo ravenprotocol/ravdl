@@ -1,1 +1,1 @@
-from .NeuralNetwork import NeuralNetwork, Functional
+from .NeuralNetwork import NeuralNetwork, Functional, Pytorch_Model

@@ -261,8 +261,12 @@ class Functional():
         self.forward_pass = self.forward_pass['output']
         return self.forward_pass
             
-    def _backward_pass(self,loss_grad):
-        self.start_backward_marker = R.start_backward_marker(loss_grad)        
+    def _backward_pass(self,loss_grad, step=True):
+        if step:
+            step = "True"
+        else:
+            step = "False"
+        self.start_backward_marker = R.start_backward_marker(loss_grad, step = step)      
         self.is_training_init = True
         
     def predict(self, *args):
@@ -275,3 +279,41 @@ class Functional():
                 layer = self.__dict__[attr]
                 if hasattr(layer, 'save_backprops'):
                     layer.save_backprops()
+
+class Pytorch_Model():
+    def __init__(self, model_op):
+        self.model = model_op
+        self.forward_pass = None
+        self.backward_pass = None
+        self.optimizer = None
+    
+    def initialize(self, optimizer):
+        self.optimizer = optimizer
+
+    def _forward_pass(self, X, training=True, **kwargs):
+        if training:
+            training = "True"
+        else:
+            training = "False"
+
+        if self.optimizer is not None:
+            optimizer_dict = self.optimizer.data_dict()
+        else:
+            optimizer_dict = None
+
+        if self.forward_pass is None:
+            self.forward_pass = R.forward_pass(X, model = self.model, optimizer_dict = optimizer_dict, training = training, **kwargs)
+        else:
+            self.forward_pass = R.forward_pass(X, training = training, previous_forward_pass = self.forward_pass, optimizer_dict = optimizer_dict, **kwargs)
+
+        return self.forward_pass
+
+    def _backward_pass(self,loss_grad, step=True):
+        if step:
+            step = "True"
+        else:
+            step = "False"
+        self.start_backward_marker = R.start_backward_marker(loss_grad, step = step)
+
+    def save_model(self, name='model'):
+        self.forward_pass.persist_op(name, save_model=True)
