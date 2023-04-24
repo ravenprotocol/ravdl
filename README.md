@@ -35,6 +35,7 @@ There is something in it for the providers too! The nodes that contribute their 
 - [Usage](#usage)
 - [Functional Model Definition](#functional-model-definition)
 - [Sequential Model Definition](#sequential-model-definition)
+- [TorchScript Model Op](#torchscript-model-op)
 - [Activate Graph](#activating-the-graph)
 - [Execute Graph](#executing-the-graph)
 - [Retrieving Persisting Ops](#retrieving-persisting-ops)
@@ -300,11 +301,23 @@ The next step involves the creation of a Graph...
 ```python
 R.flush()
 
-algo = R.Graph(name='cnn', algorithm='convolutional_neural_network', approach='distributed')
+R.Graph(name='cnn', algorithm='convolutional_neural_network', approach='distributed')
 ```
 > **Note:** ```name``` and ```algorithm``` parameters can be set to any string. However, the ```approach``` needs to be set to either "distributed" or "federated". 
 
-The Current Release of RavDL supports Functional and Sequential Model Definitions.
+The Current Release of RavDL supports TorchScript, Functional and Sequential Model Definitions.
+
+### GPU Support 
+
+The requester can now utilize GPU resources on provider nodes by using the ```gpu_required``` parameter to ```yes``` in the Graph definition. 
+
+```python
+R.Graph(name='cnn', algorithm='convolutional_neural_network', approach='distributed', gpu_required='yes')
+```
+
+**Important:** This feature is currently in beta and is available only for the TorchScript Model Definition. 
+
+
 
 ![-----------------------------------------------------](https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/aqua.png)
 
@@ -448,6 +461,67 @@ If required, model inference can be tested by using the ```predict``` function. 
 y_test_pred = model.predict(X_test)
 y_test_pred.persist_op(name='test_prediction')
 ```
+
+![-----------------------------------------------------](https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/aqua.png)
+
+## TorchScript Model Op
+
+RavDL now supports direct loading and training of Pytorch models on the Ravenverse using our powerful distribution strategies.
+
+> **Note:** The Requester must first convert their Pytorch model to TorchScript model using the ```torch.jit.script``` function. We recommend you to refer to the [Pytorch documentation](https://pytorch.org/docs/stable/jit.html) for more information on TorchScript.
+
+
+### Creating the Model Op
+
+The Model Op takes a **TorchScript model file** (```.pt```) as an argument and creates an Op that can be used to train the model on the Ravenverse.
+
+```python
+import ravop as R
+
+model_op = R.model('test_model.pt')
+```
+
+This model op can now be loaded directly into a RavDL model and further used to define the training loop.
+
+```python
+from ravdl.v2 import Pytorch_Model
+from ravdl.v2.optimizers import Adam
+
+optimizer = Adam()
+model = Pytorch_Model(model_op=model_op)
+model.initialize(optimizer)
+```
+
+### Training the Model
+
+```python
+for i in range(epochs):
+    for X_batch, y_batch in batch_iterator(X, y, batch_size=256):
+        X_t = R.t(X_batch.astype(np.float32))
+        y_t = R.t(y_batch.astype(np.float32))
+        out = model._forward_pass(X_t)
+        loss = R.square_loss(y_t, out)
+        # Set step = True whenever optimizer step needs to be called after backprop (defaults to True).
+        model._backward_pass(loss, step = True)
+```
+
+### Saving and Fetching the Trained Model
+
+Apart from persisting output Ops, the trained model can also be saved on the Ravenverse. This can be done by calling the ```save_model``` function.
+
+```python
+model.save_model(name='my_net')
+```
+
+The saved model can be fetched from the Ravenverse by calling the ```fetch_persisting_op``` function.
+
+```python
+my_net = R.fetch_persisting_op(op_name='my_net')
+```
+
+Complete example scripts of TorchScript Model loading and training can be found here:
+- [Pytorch to RavDL CNN Distributed Example](https://github.com/ravenprotocol/ravenverse/blob/master/Requester/pytorch_to_ravdl_cnn.py)
+
 
 ![-----------------------------------------------------](https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/aqua.png)
 
