@@ -520,7 +520,7 @@ my_net = R.fetch_persisting_op(op_name='my_net')
 ```
 
 Complete example scripts of TorchScript Model loading and training can be found here:
-- [Pytorch CNN Distributed](https://github.com/ravenprotocol/ravenverse/blob/master/Requester/model_dist.py)
+- [Pytorch to RavDL CNN Distributed Example](https://github.com/ravenprotocol/ravenverse/blob/master/Requester/pytorch_to_ravdl_cnn.py)
 
 
 ![-----------------------------------------------------](https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/aqua.png)
